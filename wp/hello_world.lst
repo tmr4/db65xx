@@ -1,0 +1,54 @@
+ca65 V2.19
+Main file   : C:\Users\tmrob\Documents\Projects\debug\hello_world\src\hello_world.s
+Current file: C:\Users\tmrob\Documents\Projects\debug\hello_world\src\hello_world.s
+
+000000r 1               putc = $f001
+000000r 1               
+000000r 1               .bss
+000000r 1  00           cur_char: .byte 0
+000001r 1               
+000001r 1               .code
+000000r 1               
+000000r 1               reset:
+000000r 1  A2 FF          ldx #$ff
+000002r 1  9A             txs
+000003r 1               
+000003r 1  A2 00          ldx #0
+000005r 1               print:
+000005r 1  BD rr rr       lda message,x
+000008r 1  8D rr rr       sta cur_char
+00000Br 1  F0 07          beq loop
+00000Dr 1  20 rr rr       jsr print_char
+000010r 1  E8             inx
+000011r 1  4C rr rr       jmp print
+000014r 1               
+000014r 1               loop:
+000014r 1  4C rr rr       jmp loop
+000017r 1               
+000017r 1               print_char:
+000017r 1  8D 01 F0       sta putc
+00001Ar 1  60             rts
+00001Br 1               
+00001Br 1               .rodata
+000000r 1  48 65 6C 6C  message: .asciiz "Hello, world!"
+000004r 1  6F 2C 20 77  
+000008r 1  6F 72 6C 64  
+00000Er 1               
+00000Er 1               .segment "VECTORS"
+000000r 1  00 00        .word $0000
+000002r 1  00 00        .word $0000
+000004r 1  00 00        .word $0000
+000006r 1  00 00        .word $0000
+000008r 1  00 00        .word $0000
+00000Ar 1  00 00        .word $0000
+00000Cr 1  00 00        .word $0000
+00000Er 1  00 00        .word $0000
+000010r 1  00 00        .word $0000
+000012r 1  00 00        .word $0000
+000014r 1  00 00        .word $0000
+000016r 1  00 00        .word $0000
+000018r 1  00 00        .word $0000
+00001Ar 1  00 00        .word $0000
+00001Cr 1  rr rr        .word reset
+00001Er 1  00 00        .word $0000
+00001Er 1               
