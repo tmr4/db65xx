@@ -1,0 +1,52 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "scopeName": "source.65xx",
+    "name": "db65xx",
+    "patterns": [
+        {
+            "include": "#keyword"
+        },
+        {
+            "include": "#comment"
+        }
+    ],
+    "repository": {
+        "keyword": {
+            "patterns": [
+                {
+                    "name": "keyword.instruction.65xx",
+                    "match": "(?i)[\\s]*\\b(adc|and|asl|bcc|bcs|beq|bit|bmi|bne|bpl|brk|bvc|bvs|clc|cld|cli|clv|cmp|cpx|cpy|dec|dex|dey|eor|inc|inx|iny|jmp|jsr|lda|ldx|ldy|lsr|nop|ora|pha|php|pla|plp|rol|ror|rti|rts|sbc|sec|sed|sei|sta|stx|sty|tax|tay|tsx|txa|txs|tya)\\b(\\s)"
+                },
+                {
+                    "name": "keyword.instruction.65c02",
+                    "match": "(?i)[\\s]*\\b(bbr|bbs|bra|phx|phy|plx|ply|rmb|smb|stp|stz|trb|tsb|wai)\\b(\\s)"
+                },
+                {
+                    "name": "keyword.instruction.65816",
+                    "match": "(?i)[\\s]*\\b(bra|brl|cop|jml|jsl|mvn|mvp|pea|pei|per|phb|phd|phk|phx|phy|plb|pld||plx|ply|rep|rtl|sep|stp|stz|tcd|tcs|tdc|trb|tsb|tsc|txy|tyx|wai|wdm|xba|xce)\\b(\\s)"
+                },
+                {
+                    "name": "keyword.ca65.command",
+                    "match": "(?i)(?:^|\\s)(\\.(a16|a8|align|asciiz|bss|byte|code|data|dword|else|elseif|end|endif|endmacro|export|exportzp|faraddr|global|globalzp|i16|i8|if|ifdef|ifndef|import|importzp|incbin|include|macro|org|p816|res|rodata|segment|set|word|zeropage))\\b"
+                },
+                {
+                    "name": "keyword.ca65.function",
+                    "match": "(?i)(?:^|\\s)(\\.(hibyte|hiword|lobyte|loword))\\b"
+                },
+                {
+                    "name": "keyword.ca65.variable",
+                    "match": "(?i)(?:^|\\s)(\\.(cpu))\\b"
+                }
+            ]
+        },
+        "comment": {
+            "patterns": [
+                {
+                    "name": "comment.line",
+                    "begin": ";",
+                    "end": "$"
+                }
+            ]
+        }
+    }
+}

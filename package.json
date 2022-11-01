@@ -1,0 +1,219 @@
+{
+  "name": "db65xx",
+  "displayName": "65xx Debug Adapter",
+  "version": "0.0.0",
+  "publisher": "TRobertson",
+  "description": "VS Code debug adapter for 65xx assembly.",
+  "author": {
+    "name": "Terrance Robertson"
+  },
+  "license": "BSD 3-Clause",
+  "keywords": [
+    "multi-root ready"
+  ],
+  "engines": {
+    "vscode": "^1.66.0"
+  },
+  "icon": "",
+  "categories": [
+    "Debuggers"
+  ],
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tmr4/db65xx.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tmr4/db65xx/issues"
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "lint": "eslint src --ext ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "esbuild-base": "esbuild ./src/extension.ts --bundle --tsconfig=./tsconfig.json --external:vscode --format=cjs --platform=node --outfile=dist/extension.js",
+    "watch": "npm run -S esbuild-base -- --sourcemap --sources-content=false --watch",
+    "build": "npm run -S esbuild-base -- --sourcemap --sources-content=false",
+    "package": "vsce package",
+    "publish": "vsce publish",
+    "publish-pre-release": "vsce publish --pre-release",
+    "vscode:prepublish": "rimraf dist && npm run -S esbuild-base -- --minify",
+    "test": "npm run typecheck"
+  },
+  "devDependencies": {
+    "@types/glob": "^7.2.0",
+    "@types/mocha": "^9.1.0",
+    "@types/node": "^14.14.37",
+    "@types/vscode": "^1.66.0",
+    "@typescript-eslint/eslint-plugin": "^5.17.0",
+    "@typescript-eslint/parser": "^5.17.0",
+    "@vscode/debugadapter": "^1.56.0",
+    "@vscode/debugadapter-testsupport": "^1.56.0",
+    "await-notify": "^1.0.1",
+    "base64-js": "^1.5.1",
+    "esbuild": "^0.14.29",
+    "eslint": "^8.12.0",
+    "events": "^3.3.0",
+    "glob": "^7.2.0",
+    "mocha": "^9.2.2",
+    "path-browserify": "^1.0.1",
+    "rimraf": "^3.0.2",
+    "typescript": "^4.6.3",
+    "url": "^0.11.0",
+    "vsce": "^2.7.0"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onLanguage:db65xx",
+    "onDebugResolve:65xx"
+  ],
+  "contributes": {
+    "languages": [
+        {
+            "id": "db65xx",
+            "aliases": [
+                "65xx"
+            ],
+            "extensions": [
+                ".asm",
+                ".s",
+                ".inc",
+                ".lst"
+            ],
+            "configuration": "./language-configuration.json"
+        }
+    ],
+    "grammars": [
+        {
+            "language": "db65xx",
+            "scopeName": "source.65xx",
+            "path": "./syntaxes/65xx.tmLanguage.json"
+        }
+    ],
+    "breakpoints": [
+      {
+        "language": "db65xx"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "65xx",
+        "languages": [
+          "db65xx"
+        ],
+        "label": "65xx Debug",
+        "program": "./out/debugAdapter.js",
+        "runtime": "node",
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Absolute path to a text file.",
+                "default": "${workspaceFolder}/${command:AskForProgramName}"
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Automatically stop after launch.",
+                "default": true
+              },
+              "trace": {
+                "type": "boolean",
+                "description": "Enable logging of the Debug Adapter Protocol.",
+                "default": true
+              },
+              "compileError": {
+                "type": "string",
+                "description": "Simulates a compile error in 'launch' request.",
+                "enum": [
+                  "default",
+                  "show",
+                  "hide"
+                ],
+                "enumDescriptions": [
+                  "default: show fake compile error to user",
+                  "show fake compile error to user",
+                  "do not show fake compile error to user"
+                ]
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Absolute path to the working director.",
+                "default": "${cwd}"
+              },
+              "args": {
+                "type": "string",
+                "description": "Debugee arguments."
+              }
+            }
+          },
+          "attach": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Absolute path to a text file.",
+                "default": "${workspaceFolder}/${command:AskForProgramName}"
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Automatically stop after attach.",
+                "default": true
+              },
+              "trace": {
+                "type": "boolean",
+                "description": "Enable logging of the Debug Adapter Protocol.",
+                "default": true
+              },
+              "compileError": {
+                "type": "string",
+                "description": "Simulates a compile error in 'attach' request.",
+                "enum": [
+                  "default",
+                  "show",
+                  "hide"
+                ],
+                "enumDescriptions": [
+                  "default: show fake compile error to user",
+                  "show fake compile error to user",
+                  "do not show fake compile error to user"
+                ]
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "65xx",
+            "request": "launch",
+            "name": "Ask for file name",
+            "program": "${workspaceFolder}/${command:AskForProgramName}",
+            "stopOnEntry": true,
+            "cwd": "${cwd}"
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "65xx Debug: Launch",
+            "description": "A new configuration for debugging a 65xx binary.",
+            "body": {
+              "type": "65xx",
+              "request": "launch",
+              "name": "Ask for file name",
+              "program": "^\"\\${workspaceFolder}/\\${command:AskForProgramName}\"",
+              "stopOnEntry": true,
+              "cwd": "${cwd}"
+            }
+          }
+        ],
+        "variables": {
+          "AskForProgramName": "extension.db65xx.getProgramName"
+        }
+      }
+    ]
+  }
+}
