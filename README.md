@@ -1,7 +1,7 @@
 # db65xx
 VS Code debugger for 65816 assembly code
 
-![Screenshot of db65xx debugger](img/db65xx.png)
+![Screenshot of db65xx debugger](https://trobertson.site/wp-content/uploads/2022/10/db65816.png)
 
 # Features
 * Runs a program from reset vector, optionally stopping on entry
@@ -52,7 +52,7 @@ Clone this repository and open it in VS Code.  Open a terminal and type `install
 # Hello World Example
 I've included a very simple "hello world" example project in the [wp](wp/hello_world.s) folder.  To run it, open the debug adapter extension project in VS Code and press `F5` to start debugging.  VS Code will open a new window where you can run the hello world example.  Open hello_world.s, make sure "Debug File" is selected in the VS Code debug pane and press `F5`.  The program should pause at the start of the reset subroutine.
 
-![Screenshot of db65xx debugger](img/hello_world.png)
+![Screenshot of db65xx debugger](https://trobertson.site/wp-content/uploads/2022/10/hello_world.png)
 
 # Use
 The db65xx extension implements many of VS Code's debugging capabilities.  See [Debugging](https://code.visualstudio.com/docs/editor/debugging) for an overview of using the VS Code debugging interface.  In some cases, db65xx behaves slightly differently than standard:
