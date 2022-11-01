@@ -15,12 +15,9 @@
 			"program": "${cwd}",
 			"args": [
 				{
-					"sbin": "${cwd}\\listing\\sforth.bin",
-					"src":  "${cwd}\\src\\",
-					"list": "${cwd}\\listing\\",
-					"acia": "0x01ff20",
-					"via":  "0x01ff10",
-					"fbin": "${cwd}\\listing\\block.bin",
+					"sbin": "${cwd}\\hello_world.bin",
+					"src":  "${cwd}",
+					"list": "${cwd}",
 				}
 			],
 			"stopOnEntry": true,

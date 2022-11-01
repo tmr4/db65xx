@@ -80,7 +80,7 @@ export class SourceMap {
         // that didn't work, try creating the maps with the listing, symbol and map files
         if (!dbgFile) {
             this.createSymbolMap(path.join(listDir, basename + '.sym'));
-            this.createSourceMap(srcDir, listDir, basename, extension);
+            this.createSourceMap(srcDir, listDir, basename, extension ? extension : ".s");
         }
 
         this.createReverseMap();

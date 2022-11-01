@@ -1,6 +1,6 @@
 dist/
 node_modules/
 out/
-img/
+images/
 wp/hello_world.*
 package-lock.json

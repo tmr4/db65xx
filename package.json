@@ -1,24 +1,21 @@
 {
   "name": "db65xx",
-  "displayName": "65xx Debug Adapter",
+  "displayName": "65xx Debugger",
   "version": "0.0.0",
   "publisher": "TRobertson",
-  "description": "VS Code debug adapter for 65xx assembly.",
+  "description": "VS Code debugger for 65xx assembly.",
   "author": {
     "name": "Terrance Robertson"
   },
   "license": "BSD 3-Clause",
-  "keywords": [
-    "multi-root ready"
-  ],
   "engines": {
     "vscode": "^1.66.0"
   },
-  "icon": "",
+  "icon": "images/icon.png",
   "categories": [
-    "Debuggers"
+    "Debuggers",
+    "Programming Languages"
   ],
-  "private": true,
   "repository": {
     "type": "git",
     "url": "https://github.com/tmr4/db65xx.git"
@@ -148,71 +145,33 @@
                 "description": "Debugee arguments."
               }
             }
-          },
-          "attach": {
-            "required": [
-              "program"
-            ],
-            "properties": {
-              "program": {
-                "type": "string",
-                "description": "Absolute path to a text file.",
-                "default": "${workspaceFolder}/${command:AskForProgramName}"
-              },
-              "stopOnEntry": {
-                "type": "boolean",
-                "description": "Automatically stop after attach.",
-                "default": true
-              },
-              "trace": {
-                "type": "boolean",
-                "description": "Enable logging of the Debug Adapter Protocol.",
-                "default": true
-              },
-              "compileError": {
-                "type": "string",
-                "description": "Simulates a compile error in 'attach' request.",
-                "enum": [
-                  "default",
-                  "show",
-                  "hide"
-                ],
-                "enumDescriptions": [
-                  "default: show fake compile error to user",
-                  "show fake compile error to user",
-                  "do not show fake compile error to user"
-                ]
-              }
-            }
           }
         },
         "initialConfigurations": [
           {
             "type": "65xx",
             "request": "launch",
-            "name": "Ask for file name",
-            "program": "${workspaceFolder}/${command:AskForProgramName}",
+            "name": "Debug file",
+            "program": "${file}",
+            "stopOnEntry": true,
+            "cwd": "${cwd}"
+          },
+          {
+            "type": "65xx",
+            "request": "launch",
+            "name": "Lauch with args",
+            "program": "${cwd}",
+            "args": [
+                {
+                    "sbin": "${cwd}\\hello_world.bin",
+                    "src":  "${cwd}",
+                    "list": "${cwd}"
+                }
+            ],
             "stopOnEntry": true,
             "cwd": "${cwd}"
           }
-        ],
-        "configurationSnippets": [
-          {
-            "label": "65xx Debug: Launch",
-            "description": "A new configuration for debugging a 65xx binary.",
-            "body": {
-              "type": "65xx",
-              "request": "launch",
-              "name": "Ask for file name",
-              "program": "^\"\\${workspaceFolder}/\\${command:AskForProgramName}\"",
-              "stopOnEntry": true,
-              "cwd": "${cwd}"
-            }
-          }
-        ],
-        "variables": {
-          "AskForProgramName": "extension.db65xx.getProgramName"
-        }
+        ]
       }
     ]
   }
