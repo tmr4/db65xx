@@ -183,28 +183,6 @@ export class Debug65xxSession extends LoggingDebugSession {
         this.ee65xx.on('stopOnStep', () => {
             this.sendEvent(new StoppedEvent('step', Debug65xxSession.threadID));
         });
-        this.ee65xx.on('output', (type, text, filePath, line, column) => {
-//            this.terminal.terminalWrite((message as OutputEvent).body.output);
-
-            let category: string;
-            switch (type) {
-                case 'prio': category = 'important'; break;
-                case 'out': category = 'stdout'; break;
-                case 'err': category = 'stderr'; break;
-                default: category = 'console'; break;
-            }
-            const e: DebugProtocol.OutputEvent = new OutputEvent(`${text}\n`, category);
-
-            if (text === 'start' || text === 'startCollapsed' || text === 'end') {
-                e.body.group = text;
-                e.body.output = `group-${text}\n`;
-            }
-
-            e.body.source = this.createSource(filePath);
-            e.body.line = this.convertDebuggerLineToClient(line);
-            e.body.column = this.convertDebuggerColumnToClient(column);
-            this.sendEvent(e);
-        });
         this.ee65xx.on('exited', () => {
             this.sendEvent(new TerminatedEvent());
         });
@@ -1258,12 +1236,26 @@ export class Debug65xxSession extends LoggingDebugSession {
                     }
                 }
 
-                // we've hit a function breakpoint if either condition is met or
+                // we've hit a source breakpoint if either condition is met or
                 // if both conditions are undefined
                 if (isCondition || isHitCondition || (!bps[0].condition && !bps[0].hitCondition)) {
+
+                    // evaluate and print message to debug console if a log point is set
                     if (bps[0].logMessage) {
-                        // eslint-disable-next-line no-console
-                        console.log(bps[0].logMessage);
+                        // evaluate {} section of message if any
+                        const msg = bps[0].logMessage.replace(/(\{.*\})/g, (match, exp) => {
+                            const nexp = this.expSymbolToAddress(exp.slice(1, -1));
+                            const value = this.expEval(nexp);
+                            return value ? value.toString() : '{???}';
+                        });
+                        const e: DebugProtocol.OutputEvent = new OutputEvent(msg + '\n', 'console');
+
+                        e.body.source = this.createSource(this.sourceMap.getSourceFile(fileId));
+                        const line = this.sourceMap.get(address)?.sourceLine;
+                        if(line) {
+                            e.body.line = this.convertDebuggerLineToClient(line);
+                        }
+                        this.sendEvent(e);
                         return false;
                     } else {
                         this.sendEvent(new StoppedEvent('stopOnBreakpoint', Debug65xxSession.threadID));
@@ -1383,17 +1375,6 @@ export class Debug65xxSession extends LoggingDebugSession {
                 }
             }
         }
-
-        /*
-            // if 'log(...)' found in source -> send argument to debug console
-            const reg1 = /(log|prio|out|err)\(([^\)]*)\)/g;
-            let matches1: RegExpExecArray | null;
-            while (matches1 = reg1.exec(line)) {
-                if (matches1.length === 3) {
-                    this.sendEvent('output', matches1[1], matches1[2], this._sourceFile, ln, matches1.index);
-                }
-            }
-    */
 
         return false;
     }

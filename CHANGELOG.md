@@ -8,3 +8,7 @@
 
 - Added `Launch with args` configuration for "Hello World" example.
 - Updated Readme to reflect Marketplace extension usage.
+
+### 0.0.2
+
+- Added logpoints

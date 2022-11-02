@@ -9,12 +9,13 @@ VS Code assembly language debugger for the 65C02 and 65816 microprocessors.
 * Can set launch arguments for program
 * Follow along with execution directly in assembly source files
 * Control program execution with continue/pause, single step, step-into, step-over,  step-out and run-to-cursor
-* Four types of breakpoints:
+* Five types of breakpoints:
     * Source: set directly in assembly source files; stops execution when that line is reached
     * Function: set on function name or memory address; stops execution when that function is entered or memory address is reached during program execution
     * Data: set on X, Y, K, B and D register; stops execution when a write access to these registers is made
     * Instruction mnemonic or opcode (opcode allows a break even if there is no supporting source code)
-* Set break conditions on source and function breakpoints
+    * Logpoints: don't break when hit, but print a text message to the debug console.  Can include expressions to be evaluated within curly braces ('{}').
+* Set break conditions and/or hit count on source and function breakpoints and logpoints
 * Registers and hardware stack displayed in Variables pane and can be modified when program is paused
 * Watch pane functional for program symbols and memory addresses (not expressions) and the values of these can be changed when the program is paused
 * Variable/watch changes highlighted after each step and on execution pause
@@ -46,7 +47,7 @@ EE65xx exposes several methods allowing the debug adapter to control the simulat
 
 The core of the execution engine is a Typescript port of the core of my [py65816](https://github.com/tmr4/py65816) Python simulator package.  The Python version has been tested with unit tests covering about 98% of the code (see the link for limitations).  Similar tests have not been made on the Typescript core but it has successfully passed a significant set of higher-level functional tests.  I don't plan on porting the Python unit tests as its code base is significantly larger than just the core alone.  As always, use at your own risk.
 
-I plan to port the [65C02 core](https://github.com/tmr4/py65816/blob/main/py65816/devices/db_mpu65c02.py) my Python simulator package at some point.  These are based on Mike Naberezny's[py65](https://github.com/mnaberez/py65), a great 65C02 simulator.  Check out [ThirdPartyNotices](https://github.com/tmr4/db65xx/ThirdPartyNotices.txt) for it's license and those of other's works that made this VS Code extension possible.
+I plan to port the [65C02 core](https://github.com/tmr4/py65816/blob/main/py65816/devices/db_mpu65c02.py) my Python simulator package at some point.  These are based on Mike Naberezny's [py65](https://github.com/mnaberez/py65), a great 65C02 simulator.  Check out [ThirdPartyNotices](https://github.com/tmr4/db65xx/ThirdPartyNotices.txt) for its license and those of other's works that made this VS Code extension possible.
 
 # Installation
 The [db65xx VS Code extension](https://marketplace.visualstudio.com/items?itemName=TRobertson.db65xx) is available in the Visual Studio Marketplace and is the easiest way to add the extension to your system.  If you'd like to see how the extension works or modify it, clone this repository and open it in VS Code.  Open a terminal and type `install npm`.  You should be then be ready to run the hello world example.  To use the extension with your own files, add a default launch configuration with the `Run - Add Configuration...` menu item.
@@ -71,7 +72,7 @@ The db65xx extension implements many of VS Code's debugging capabilities.  See [
 1. This is a work in progress and will likely remain so.  I use it in debugging my 65816 Forth operating system.  I make no claims to its usability or suitability for your uses.  Coding is just a hobby for me, so take care.  Much of the code hasn't been rigorously tested, is without error checking and is likely inefficient.  Still, hopefully it will help others get past the limited documentation regarding VS Code's implementation of Microsoft's DAP.  Another good starting point for that is Microsoft's [Mock-Debug](https://github.com/Microsoft/vscode-mock-debug) which was the starting point for this project.
 2. The installation steps noted above are all you should need to do if your system is set up like mine.  There may be other setup steps you need to take if you don't have all of the prerequisite software installed already.  In addition to installing [VS Code](https://code.visualstudio.com/) and recommended extensions, the only other thing I had to install to run the hello world example from a cloned repository on a fairly clean PC was [NodeJS](https://learn.microsoft.com/en-us/windows/dev-environment/javascript/nodejs-on-windows).
 3. The db65xx extension comes with a basic 65xx assembly language syntax highlighting.  You can use it my selecting the `65xx` language mode. You might want to use another 65xx language extension for a more enhanced debugging experience.  Search for 6502 in VS Code's extensions marketplace.
-4. You can use defined symbols in conditional breakpoint expressions.  These haven't been extensively tested.  Registers cannot be used in expressions.  I'll likely add this feature soon but I'll likely take an approach where they will hide symbols with the same name.
-5. Conditional expressions are ignored on instruction and opcode breakpoints.
+4. You can use defined symbols in conditional breakpoint and logpoint expressions.  These haven't been extensively tested.  Registers cannot be used in expressions.  I'll likely add this feature soon but I'll likely take an approach where they will hide symbols with the same name.
+5. Conditional expressions are ignored on instruction and opcode breakpoints.  I may add these within curly braces ('{}') as with logpoints.
 6. I haven't tried db65xx with a 65C02-based binary but it should work as long as none of the 65C02 specific instructions are used (and assuming your code doesn't rely on other differences between the two processors).  I also haven't tried using C code with cc65.  It doesn't support the 65816.  I suppose it would be possible to link in 65C02 C-based object files to a 65816 project and I assume the ld65 debug file would map to the proper C source file.  I'd like to know the result if you try it out.
 7. more to come...
