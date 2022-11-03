@@ -864,11 +864,37 @@ export class Debug65xxSession extends LoggingDebugSession {
 
         switch (args.context) {
             case 'repl':
+                // do we have an assignment expression?
+                // parse expression into:
+                // (\b[A-z]+[A-z0-9]*)      symbol
+                // (?:\s*)                  optional whitespace (not captured)
+                // (={1})                   one equals sign
+                // (?:\s*)                  optional whitespace (not captured)
+                // (.*)                     right hand side of expression
+                const regExp = /(\b[A-z]+[A-z0-9]*)(?:\s*)(={1})(?:\s*)(.*)/;
+                const match: RegExpExecArray | null = regExp.exec(args.expression);
+                if (match && (match[2] === '=') && (match.length === 4)) {
+                    const symbol = this.sourceMap.getSymbol(match[1]);
+                    if (symbol) {
+                        // convert any symbols in the right hand side to their addresses
+                        const value = this.expEval(match[3]);
+                        if (value !== undefined) {
+                            this.setSymbolValue(symbol.address, symbol.size, value);
+                            result = value.toString(16);
+                        } else {
+                            result = '???';
+                        }
+                    } else {
+                        result = '???';
+                    }
+                    break;
+                }
+
+                // otherwise, just evaluate expression and return its result
                 // convert any symbols to their addresses
-                const exp = this.expSymbolToAddress(args.expression);
-                const value = this.expEval(exp);
+                const value = this.expEval(args.expression);
                 if (value !== undefined) {
-                    result = value.toString();
+                    result = value.toString(16);
                 } else {
                     //response.success = false;
                     result = '???';
@@ -883,16 +909,10 @@ export class Debug65xxSession extends LoggingDebugSession {
                 if (symbol) {
                     switch (symbol.size) {
                         case 1:
-                            result = mem[symbol.address].toString(16);
-                            break;
                         case 2:
-                            result = (mem[symbol.address] + (mem[symbol.address + 1] << 8)).toString(16);
-                            break;
+                        case 3:
                         case 4:
-                            result = (mem[symbol.address] +
-                                (mem[symbol.address + 1] << 8) +
-                                (mem[symbol.address + 2] << 16) +
-                                (mem[symbol.address + 3] << 24)).toString(16);
+                            result = this.getSymbolValue(symbol.address, symbol.size).toString(16);
                             break;
                         default:
                             result = toHexString(mem.slice(symbol.address, symbol.address + symbol.size));
@@ -932,10 +952,16 @@ export class Debug65xxSession extends LoggingDebugSession {
                             iv = end - start + 1;
                         }
                     }
-                } else if (!isNaN(parseInt(args.expression))) {
+                } else if (args.expression.startsWith('0x') && !isNaN(parseInt(args.expression))) {
                     result = mem[parseInt(args.expression)].toString(16);
                 } else {
-                    response.success = false;
+                    // try to evaluate as an expression
+                    const value = this.expEval(args.expression);
+                    if (value !== undefined) {
+                        result = value.toString(16);
+                    } else {
+                        response.success = false;
+                    }
                     break;
                 }
                 break;
@@ -944,7 +970,7 @@ export class Debug65xxSession extends LoggingDebugSession {
                 // just return address of symbol if found
                 symbol = this.sourceMap.getSymbol(args.expression);
                 if (symbol !== undefined) {
-                    result = symbol.address.toString();
+                    result = symbol.address.toString(16);
                 } else {
                     response.success = false;
                 }
@@ -967,24 +993,25 @@ export class Debug65xxSession extends LoggingDebugSession {
     // (also used if supportsSetVariable is false and a Variable's evaluateName property is set)
     protected setExpressionRequest(response: DebugProtocol.SetExpressionResponse, args: DebugProtocol.SetExpressionArguments): void {
 
-        if (args.expression.startsWith('$')) {
-            const rv = this.scopes.get(args.expression.slice(1));
-            if (rv) {
-                //rv.value = this.convertToRuntime(args.value);
-                response.body = { value: '0xea' };
+        const symbol = this.sourceMap.getSymbol(args.expression);
+        if (symbol) {
+            const value = this.expEval(args.value);
+            if (value !== undefined) {
+                this.setSymbolValue(symbol.address, symbol.size, value);
+                response.body = { value: args.value };
                 this.sendResponse(response);
             } else {
                 this.sendErrorResponse(response, {
-                    id: 1002,
-                    format: `variable '{lexpr}' not found`,
+                    id: 1003,
+                    format: `'{lexpr}' not an assignable expression`,
                     variables: { lexpr: args.expression },
                     showUser: true
                 });
             }
         } else {
             this.sendErrorResponse(response, {
-                id: 1003,
-                format: `'{lexpr}' not an assignable expression`,
+                id: 1002,
+                format: `variable '{lexpr}' not found`,
                 variables: { lexpr: args.expression },
                 showUser: true
             });
@@ -1222,10 +1249,10 @@ export class Debug65xxSession extends LoggingDebugSession {
 
                 // check on conditions
                 if (bps[0].condition) {
-                    isCondition = this.expEval(bps[0].condition);
+                    isCondition = this.modExpEval(bps[0].condition);
                 }
                 if (bps[0].hitCondition) {
-                    const hitCondition = this.expEval(bps[0].hitCondition);
+                    const hitCondition = this.modExpEval(bps[0].hitCondition);
                     const hcbp = this.hitConditionBreakpoints.get(address);
 
                     if (hcbp) {
@@ -1244,9 +1271,8 @@ export class Debug65xxSession extends LoggingDebugSession {
                     if (bps[0].logMessage) {
                         // evaluate {} section of message if any
                         const msg = bps[0].logMessage.replace(/(\{.*\})/g, (match, exp) => {
-                            const nexp = this.expSymbolToAddress(exp.slice(1, -1));
-                            const value = this.expEval(nexp);
-                            return value ? value.toString() : '{???}';
+                            const value = this.expEval(exp.slice(1, -1));
+                            return value ? value.toString(16) : '{???}';
                         });
                         const e: DebugProtocol.OutputEvent = new OutputEvent(msg + '\n', 'console');
 
@@ -1327,10 +1353,10 @@ export class Debug65xxSession extends LoggingDebugSession {
                 //    return false;
                 //}
                 if (bp.condition) {
-                    isCondition = this.expEval(bp.condition);
+                    isCondition = this.modExpEval(bp.condition);
                 }
                 if (bp.hitCondition) {
-                    const hitCondition = this.expEval(bp.hitCondition);
+                    const hitCondition = this.modExpEval(bp.hitCondition);
                     const hcbp = this.hitConditionBreakpoints.get(address);
 
                     if (hcbp) {
@@ -1352,11 +1378,11 @@ export class Debug65xxSession extends LoggingDebugSession {
 
         // is there a named or opcode exception?
         if (this.namedExceptions) {
-            const exception = this.namedExceptions;
+            const exception = this.namedExceptions.toLowerCase();
 //            let inst = this.sourceMap.get(address)?.instruction.slice(0, 3);
             const inst = this.sourceMap.get(address)?.instruction.split(' ');
             // *** TODO: might consider case sensitivity ***
-            if (inst && exception?.includes(inst[0])) {
+            if (inst && exception?.includes(inst[0].toLowerCase())) {
                 this.sendEvent(new StoppedEvent(inst[0], Debug65xxSession.threadID));
                 return true;
             }
@@ -1766,13 +1792,74 @@ export class Debug65xxSession extends LoggingDebugSession {
     // *******************************************************************************************
     // private helper methods
 
-    // replace symbol in expression with it's adddress
+    private getSymbolValue(address: number, size: number): number {
+        const mem = this.ee65xx.obsMemory.memory;
+        var result;
+
+        switch (size) {
+            case 2:
+                result = (mem[address] + (mem[address + 1] << 8));
+                break;
+            case 3:
+                result = mem[address] +
+                    (mem[address + 1] << 8) +
+                    (mem[address + 2] << 16);
+                break;
+            case 4:
+                result = mem[address] +
+                    (mem[address + 1] << 8) +
+                    (mem[address + 2] << 16) +
+                    (mem[address + 3] << 24);
+                break;
+            case 1:
+            default:
+                result = mem[address];
+                break;
+        }
+        return result;
+    }
+
+    private setSymbolValue(address: number, size: number, value: number) {
+        const mem = this.ee65xx.obsMemory.memory;
+
+        mem[address] = value & 0xff;
+        switch (size) {
+            case 4:
+                mem[address + 3] = (value & 0xff000000) >> 24;
+                // fall through
+            case 3:
+                mem[address + 2] = (value & 0xff0000) >> 16;
+                // fall through
+            case 2:
+                mem[address + 1] = (value & 0xff00) >> 8;
+                break;
+            default:
+                break;
+        }
+    }
+
+    private getSymbolValueFromString(addressString: string): number {
+        const x = addressString.split(':');
+        const address = parseInt(x[0]);
+        const size = parseInt(x[1]);
+        if (address && size) {
+            return this.getSymbolValue(address, size);
+        } else {
+            return 0; // *** TODO: consider processing ***
+        }
+    }
+
+    // replace symbol in expression with its adddress and size
     // for example if putc = $f001, then the expression
-    // 'putc == 5' becomes '"61441" == 5'
+    // 'putc == 5' becomes '"61441:1" == 5'
     private expSymbolToAddress(exp: string): string {
         const nexp = exp.replace(/(\b[A-z]+[A-z0-9]*)/g, (match, sym) => {
-            const address = this.sourceMap.getSymbolAddress(sym);
-            return address ? '\"' + address.toString() + '\"' : sym;
+            const symbol = this.sourceMap.getSymbol(sym);
+            if(symbol) {
+                return '\"' + symbol.address.toString() + ':' + symbol.size.toString() + '\"';
+            } else {
+                return sym;
+            }
         });
 
         return nexp;
@@ -1781,12 +1868,12 @@ export class Debug65xxSession extends LoggingDebugSession {
     // evaluate an experssion and return its value
     // dereferencing any addresses in an expression
     // for example if address $f001 = 5 then the
-    // expression '"61441" == 5' returns true
-    private expEval(exp: string): number | undefined {
+    // expression '"61441:1" == 5' returns true
+    private modExpEval(exp: string): number | undefined {
         // regexp w/o quotes (?<=")([0-9]+)(?=")
-        const nexp = exp.replace(/("[0-9]+")/g, (match, sym) => {
-            const address = parseInt(sym.slice(1, -1));
-            return this.ee65xx.obsMemory.memory[address].toString();
+        const nexp = exp.replace(/("[0-9]+:[0-9]+")/g, (match, sym) => {
+            const value = this.getSymbolValueFromString(sym.slice(1, -1));
+            return value.toString();
         });
 
         try {
@@ -1800,6 +1887,11 @@ export class Debug65xxSession extends LoggingDebugSession {
         catch (err) {
             return undefined;
         }
+    }
+
+    private expEval(exp: string): number | undefined {
+        const nexp = this.expSymbolToAddress(exp);
+        return this.modExpEval(nexp);
     }
 
     private formatAddress(x: number, pad = 8) {

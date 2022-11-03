@@ -12,3 +12,8 @@
 ### 0.0.2
 
 - Added logpoints
+
+### 0.0.3
+
+- Debug Console now functional
+- Expressions can be used in Watch pane
