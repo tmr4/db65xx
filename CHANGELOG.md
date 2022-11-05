@@ -2,12 +2,12 @@
 
 ### 0.0.0
 
-- Initial commit.
+- Initial commit
 
 ### 0.0.1
 
-- Added `Launch with args` configuration for "Hello World" example.
-- Updated Readme to reflect Marketplace extension usage.
+- Added `Launch with args` configuration for "Hello World" example
+- Updated Readme to reflect Marketplace extension usage
 
 ### 0.0.2
 
@@ -17,3 +17,8 @@
 
 - Debug Console now functional
 - Expressions can be used in Watch pane
+
+### 0.0.4
+
+- Enhanced expression evaluation
+- Added the `[]` array operator

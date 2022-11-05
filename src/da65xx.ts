@@ -11,16 +11,13 @@ import {
     Thread, StackFrame, Scope, Source, Handles, Breakpoint, MemoryEvent, ThreadEvent, Variable
 } from '@vscode/debugadapter';
 import { DebugProtocol } from '@vscode/debugprotocol';
-import { basename } from 'path-browserify';
 import { Subject } from 'await-notify';
 import * as base64 from 'base64-js';
-import * as fs from 'fs';
-import { TextEncoder, TextDecoder } from 'node:util';
 import * as path from 'path';
 
 import { EE65xx } from './ee65xx';
 import { Registers } from './registers';
-import { SourceMap, ISourceMap } from './sourcemap';
+import { SourceMap, ISymbol } from './sourcemap';
 import { toHexString } from './util';
 import { MPU65816 } from './mpu65816';
 
@@ -505,7 +502,6 @@ export class Debug65xxSession extends LoggingDebugSession {
         const memory = this.ee65xx.obsMemory.memory;
         const address = parseInt(memoryReference, 16);
         const start = address + offset;
-        //const end = start + decoded.length;
 
         if (decoded.length > 0) {
             for (let i = 0; i < decoded.length; i++) {
@@ -523,7 +519,6 @@ export class Debug65xxSession extends LoggingDebugSession {
     // read memoryReference and present in a hex editor window
     protected async readMemoryRequest(response: DebugProtocol.ReadMemoryResponse, { offset = 0, count, memoryReference }: DebugProtocol.ReadMemoryArguments) {
         const memory = this.ee65xx.obsMemory.memory;
-//        const address = Math.trunc(parseInt(memoryReference, 16) / 16);
         const address = parseInt(memoryReference, 16);
         const start = Math.min(address + offset, memory.length);
         const end = Math.min(start + count, memory.length);
@@ -667,7 +662,8 @@ export class Debug65xxSession extends LoggingDebugSession {
         const ref = args.variablesReference;
         const scope = this._variableHandles.get(ref);
         var name = args.name;
-        var value = parseInt(args.value);
+        const x = this.expEval(args.value);
+        var value: number = (typeof x === 'number') ? x : 0;
 
         if (scope === 'registers') {
             value = value & (this.ee65xx.mpu.mode ? 0xff : 0xffff);
@@ -878,7 +874,7 @@ export class Debug65xxSession extends LoggingDebugSession {
                     if (symbol) {
                         // convert any symbols in the right hand side to their addresses
                         const value = this.expEval(match[3]);
-                        if (value !== undefined) {
+                        if (typeof value === 'number') {
                             this.setSymbolValue(symbol.address, symbol.size, value);
                             result = value.toString(16);
                         } else {
@@ -889,17 +885,7 @@ export class Debug65xxSession extends LoggingDebugSession {
                     }
                     break;
                 }
-
-                // otherwise, just evaluate expression and return its result
-                // convert any symbols to their addresses
-                const value = this.expEval(args.expression);
-                if (value !== undefined) {
-                    result = value.toString(16);
-                } else {
-                    //response.success = false;
-                    result = '???';
-                }
-                break;
+                // else fall through to evaluate expression
 
             case 'watch':
             case 'hover':
@@ -907,6 +893,7 @@ export class Debug65xxSession extends LoggingDebugSession {
                 const mem = this.ee65xx.obsMemory.memory;
 
                 if (symbol) {
+                    // we have just a symbol, dereference it
                     switch (symbol.size) {
                         case 1:
                         case 2:
@@ -931,14 +918,17 @@ export class Debug65xxSession extends LoggingDebugSession {
                     if (args.context === 'hover') {
                         result = symbol.address.toString(16) + ': ' + result;
                     }
-                } else if (args.expression.includes(':')) {
+                } else if (args.expression.startsWith('[') && args.expression.endsWith(']') && args.expression.slice(1, -1).includes(':')) {
+                    // we have a memory array request, [start:end]
+                    // *** note hovering will never end up here as it won't capture a '[' or ']' ***
+                    const exp = args.expression.slice(1, -1);
+
                     // check for a valid memory range
-                    // *** note hovering will never end up here as it won't capture a ':' ***
-                    const range = args.expression.split(':');
+                    const range = exp.split(':');
                     if (range.length === 2) {
-                        const start = parseInt(range[0]);
-                        const end = parseInt(range[1]);
-                        if (end >= start) {
+                        const start = this.expEval(range[0]);
+                        const end = this.expEval(range[1]);
+                        if ((typeof start === 'number') && (typeof end === 'number') && (end >= start)) {
                             result = toHexString(mem.slice(start, end + 1));
                             // display as paged memory
                             // I don't want to create a handle for every memory range and
@@ -950,23 +940,23 @@ export class Debug65xxSession extends LoggingDebugSession {
                             // *** TODO: see note above about watch memref ***
                             //mref = start.toString(16);
                             iv = end - start + 1;
+                            break;
                         }
                     }
-                } else if (args.expression.startsWith('0x') && !isNaN(parseInt(args.expression))) {
-                    result = mem[parseInt(args.expression)].toString(16);
+                    result = '???';
                 } else {
                     // try to evaluate as an expression
                     const value = this.expEval(args.expression);
-                    if (value !== undefined) {
+                    if (typeof value === 'number') {
                         result = value.toString(16);
                     } else {
-                        response.success = false;
+                        result = '???';
                     }
-                    break;
                 }
                 break;
 
             default:
+                // *** TODO: how do we get here ***
                 // just return address of symbol if found
                 symbol = this.sourceMap.getSymbol(args.expression);
                 if (symbol !== undefined) {
@@ -996,7 +986,7 @@ export class Debug65xxSession extends LoggingDebugSession {
         const symbol = this.sourceMap.getSymbol(args.expression);
         if (symbol) {
             const value = this.expEval(args.value);
-            if (value !== undefined) {
+            if (typeof value === 'number') {
                 this.setSymbolValue(symbol.address, symbol.size, value);
                 response.body = { value: args.value };
                 this.sendResponse(response);
@@ -1244,15 +1234,15 @@ export class Debug65xxSession extends LoggingDebugSession {
         if (breakpoints) {
             const bps = breakpoints.filter(bp => bp.address === address);
             if (bps.length > 0) {
-                let isCondition: number | undefined = 0;
+                let isCondition: number | string | undefined = 0;
                 let isHitCondition: number | undefined = 0;
 
                 // check on conditions
                 if (bps[0].condition) {
-                    isCondition = this.modExpEval(bps[0].condition);
+                    isCondition = this.expEval(bps[0].condition);
                 }
                 if (bps[0].hitCondition) {
-                    const hitCondition = this.modExpEval(bps[0].hitCondition);
+                    const hitCondition = this.expEval(bps[0].hitCondition);
                     const hcbp = this.hitConditionBreakpoints.get(address);
 
                     if (hcbp) {
@@ -1342,8 +1332,8 @@ export class Debug65xxSession extends LoggingDebugSession {
         // https://www.javascripttutorial.net/es6/javascript-map/
         for (const [name, bp] of this.functionBreakpoints.entries()) {
             if (bp.address === address) {
-                let isCondition: number | undefined = 0;
-                let isHitCondition: number | undefined = 0;
+                let isCondition: number | string | undefined = 0;
+                let isHitCondition: number | string | undefined = 0;
 
                 // check on conditions
                 // TODO: logMessage is not available for function breakpoints, consider adding ***
@@ -1353,10 +1343,10 @@ export class Debug65xxSession extends LoggingDebugSession {
                 //    return false;
                 //}
                 if (bp.condition) {
-                    isCondition = this.modExpEval(bp.condition);
+                    isCondition = this.expEval(bp.condition);
                 }
                 if (bp.hitCondition) {
-                    const hitCondition = this.modExpEval(bp.hitCondition);
+                    const hitCondition = this.expEval(bp.hitCondition);
                     const hcbp = this.hitConditionBreakpoints.get(address);
 
                     if (hcbp) {
@@ -1563,8 +1553,10 @@ export class Debug65xxSession extends LoggingDebugSession {
                 bp.verified = true;
                 bp.address = bpAddress;
 
-                // convert symbols to their addresses
-                // if condition and/or hitCondition are set
+                // convert symbols to their addresses if condition and/or hitCondition are set
+                // this speeds up checking if the breakpoint is hit later by already having
+                // looked up the symbol's reference.  Note that expSymbolToAddress will not
+                // convert symbol arrays, such as symbol[exp].
                 if (sbp.condition) {
                     bp.condition = this.expSymbolToAddress(sbp.condition);
                 }
@@ -1889,9 +1881,69 @@ export class Debug65xxSession extends LoggingDebugSession {
         }
     }
 
-    private expEval(exp: string): number | undefined {
-        const nexp = this.expSymbolToAddress(exp);
-        return this.modExpEval(nexp);
+    private expEval(exp: string): number | string | undefined {
+        const mem = this.ee65xx.obsMemory.memory;
+        let result: number | string | undefined;
+        let sexp = '';
+
+        if (!hasMatchedBrackets(exp)) {
+            // can't work with unmatched bracket
+            return undefined;
+        }
+
+        // handle array expressions
+        let start = exp.indexOf('[');
+        let end = start >= 0 ? findClosingBracket(exp, start) : -1;
+        let hasArrayRef = (start >= 0) && (end >= 0);
+
+        while (hasArrayRef) {
+            // evaluate any array references subexpressions
+            sexp = exp.substring(start + 1, end);
+
+            // does subexpression contain any array references?
+            result = this.expEval(sexp);
+            exp = exp.replace(sexp, (result !== undefined) ? result.toString() : '???');
+
+            start = exp.indexOf('[', start + 1);
+            end = start >= 0 ? findClosingBracket(exp, start) : -1;
+            hasArrayRef = (start >= 0) && (end >= 0);
+        }
+
+        // handle simple array
+        start = exp.indexOf('[');
+        end = start >= 0 ? findClosingBracket(exp, start) : -1;
+        hasArrayRef = (start >= 0) && (end >= 0);
+
+        while (hasArrayRef) {
+            // evaluate any array references
+            sexp = exp.substring(0, end + 1);
+            let symb = '';
+
+            result = sexp.replace(/(\b[A-z]+[A-z0-9]*)*(?:\[)(.*)(?:\])/g, (match, sym, exp) => {
+                // we have an array reference: sym[exp]
+                // or a simple memory reference, [exp]
+                const symbol = this.sourceMap.getSymbol(sym);
+                const symAddress = symbol ? symbol.address : 0;
+                const value = this.expEval(exp);
+                symb = sym;
+
+                if (typeof value === 'number') {
+                    return mem[symAddress + value].toString();
+                }
+
+                return match;
+            });
+
+            exp = exp.replace(sexp, result);
+
+            start = exp.indexOf('[');
+            end = start >= 0 ? findClosingBracket(exp, start) : -1;
+            hasArrayRef = (start >= 0) && (end >= 0);
+        }
+
+        result = this.expSymbolToAddress(exp);
+
+        return this.modExpEval(result);
     }
 
     private formatAddress(x: number, pad = 8) {
@@ -1908,4 +1960,35 @@ export class Debug65xxSession extends LoggingDebugSession {
         return new Source(path.basename(source), source);
     }
 
+}
+
+// find index of matching closing bracket
+// assumes matched brackets
+function findClosingBracket(text: string, openPos: number): number {
+    let closePos = openPos;
+    let counter = 1;
+    while (counter > 0) {
+        const c = text[++closePos];
+        if (c === '[') {
+            counter++;
+        } else if (c === ']') {
+            counter--;
+        }
+    }
+
+    return closePos;
+}
+
+// returns true if brackets are matched
+function hasMatchedBrackets(text: string): boolean {
+    let counter = 0;
+    for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (c === '[') {
+            counter++;
+        } else if (c === ']') {
+            counter--;
+        }
+    }
+    return counter === 0;
 }

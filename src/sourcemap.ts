@@ -51,7 +51,7 @@ export interface ISourceMap {
 // but may be useful for identical symbols in
 // different source files.  I think the dbgfile
 // has this covered and referencing file here isn't needed. ***
-interface ISymbol {
+export interface ISymbol {
     address: number;
     size: number;       // size in bytes
 //    fileId: number;
@@ -65,7 +65,7 @@ export class SourceMap {
     private sourceFiles: string[] = [];
 
     private modules: IModule[] = [];     // records map file modules and their associated segment/offset pairs
-    private segments: ISegment[] = [];   // recodes map file segments and their associated start address
+    private segments: ISegment[] = [];   // records map file segments and their associated start address
     private segFiles: ISegFile[] = [];   // stores temp file object for each segment
 
     public constructor(srcDir: string, listDir: string, basename: string, extension: string) {
