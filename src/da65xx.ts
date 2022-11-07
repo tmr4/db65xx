@@ -14,11 +14,13 @@ import { DebugProtocol } from '@vscode/debugprotocol';
 import { Subject } from 'await-notify';
 import * as base64 from 'base64-js';
 import * as path from 'path';
+import { TextEncoder } from 'node:util';
 
 import { EE65xx } from './ee65xx';
 import { Registers } from './registers';
-import { SourceMap, ISymbol } from './sourcemap';
-import { toHexString } from './util';
+import { Symbols } from './symbols';
+import { SourceMap } from './sourcemap';
+import { toHexString, hasMatchedBrackets, findClosingBracket } from './util';
 import { MPU65816 } from './mpu65816';
 
 interface IBreakpoint {
@@ -95,6 +97,7 @@ export class Debug65xxSession extends LoggingDebugSession {
     private ee65xx: EE65xx;
     private registers!: Registers;
     private sourceMap!: SourceMap;
+    private symbols!: Symbols;
 
     private _variableHandles = new Handles<any>();
     private scopes = new Map<string, number>;
@@ -187,7 +190,7 @@ export class Debug65xxSession extends LoggingDebugSession {
 
 
     // *******************************************************************************************
-    // protected DAP Requests
+    // protected DAP Request methods
 
     // provide debug adapter capabilities to VS Code
     protected initializeRequest(response: DebugProtocol.InitializeResponse, args: DebugProtocol.InitializeRequestArguments): void {
@@ -367,9 +370,6 @@ export class Debug65xxSession extends LoggingDebugSession {
             list = this.cwd;
         }
 
-        // prepare source map
-        this.sourceMap = new SourceMap(this.src, list, binBase, extension);
-
         // start 65816 execution engine
         this.ee65xx.start(sbin, fbin, acia, via, !!args.stopOnEntry, !args.noDebug);
         const mpu = this.ee65xx.mpu;
@@ -377,6 +377,10 @@ export class Debug65xxSession extends LoggingDebugSession {
 
         // create MPU registers and flags breakdown
         this.registers = new Registers(mpu);
+
+        // prepare source map
+        this.sourceMap = new SourceMap(this.src, list, binBase, extension, memory, this.registers);
+        this.symbols = this.sourceMap.symbols;
 
         // register the 65816 scopes
         this.registerScopes(mpu, memory, fbin);
@@ -586,11 +590,23 @@ export class Debug65xxSession extends LoggingDebugSession {
                 const stack = this.stacks.get(scope);
                 const start = stack!.start();
                 const length = stack!.length();
+
+                // prepare our own paged reference to control display
                 for (let i = 0; i < length; i += 16) {
                     variables.push({
                         name: (start + i).toString(16),
                         value: toHexString(stack!.memoryRef.slice(start + i, start + i + Math.min(length, 16)), stack!.size),
-                        variablesReference: (start + i) * 16 + Math.min(length, 0xf),
+
+                        // display as paged memory, up to 16 bytes at a time
+                        // I don't want to create a handle for every memory range and
+                        // we need a way to handle a memory range that starts with 0.
+                        // variablesReference must be > 0 and < $7fffffff.  Since the
+                        // 65816 can only reference $1000000 bytes of memory, we'll
+                        // use $10000000 as a flag for a paged memory request
+                        // The specific reference is start address * 16 + page length
+                        variablesReference: 0x10000000 + (start + i) * 16 + Math.min(length, 0xf),
+
+                        // activate hex editor icon
                         memoryReference: (start + i).toString(16)
                     });
                 }
@@ -618,7 +634,7 @@ export class Debug65xxSession extends LoggingDebugSession {
 //        } else if (scope === 'buffer') {
 //            // *** TODO: consider adding something similar to stacks to get different view and hex editor
 //            // access.  Can a context memu command similar to toggle formating to add a memory range.  ***
-        } else if (ref > 0) {
+        } else if (ref > 0x10000000) {
             var start = 0;
             var end = 0;
 
@@ -636,8 +652,8 @@ export class Debug65xxSession extends LoggingDebugSession {
                 // ref = (address * 16) + count
                 // *** TODO: this can overlap with variable handles for low memory ranges ***
 
-                start = Math.trunc(ref / 16);
-                end = start + (ref & 0xf);
+                start = Math.trunc((ref & 0xfffffff) / 16);
+                end = start + ((ref & 0xfffffff) & 0xf);
             }
 
             for (let i = start; i < end; i++) {
@@ -663,71 +679,118 @@ export class Debug65xxSession extends LoggingDebugSession {
         const scope = this._variableHandles.get(ref);
         var name = args.name;
         const x = this.expEval(args.value);
-        var value: number = (typeof x === 'number') ? x : 0;
 
-        if (scope === 'registers') {
-            value = value & (this.ee65xx.mpu.mode ? 0xff : 0xffff);
-            this.registers.setRegister(name, value);
-        } else if (scope === 'flags') {
-            value = value === 0 ? 0 : 1;
-            this.registers.setFlag(name, value);
-        } else if (ref > 0) {
-            //            let address = Math.trunc(ref / 16);
-            const address = parseInt(args.name, 16);
-            const memoryReference = Math.trunc(args.variablesReference / 16);
-            //            value = value & (this.ee65xx.mpu.mode ? 0xff : 0xffff);
-            value = value & 0xff;
-            this.ee65xx.obsMemory.memory[address] = value;
+        if (typeof x === 'number') {
+            let value: number | undefined = undefined;
 
-            // update other elements of UI for change
-            // update paged variables (summary values)
-            if (this._useInvalidatedEvent) {
-                this.sendEvent(new InvalidatedEvent(['variables']));
+            if (scope === 'registers') {
+                this.registers.setRegister(name, x);
+
+                // inform VS Code UI of needed updates
+                if ((name === 'PC') || (name === 'K')) {
+                    // program counter or program bank register has changed
+                    // force update in UI by issuing a continued and a new stopped event
+                    this.sendEvent(new ContinuedEvent(Debug65xxSession.threadID));
+                    this.sendEvent(new StoppedEvent('stopOnPCUpdate', Debug65xxSession.threadID));
+                } else if (name === 'P') {
+                    // status register has changed, force UI to update registers and flags
+                    // *** TODO: consider limiting this update for change to M or X flags ***
+                    if (this._useInvalidatedEvent) {
+                        // *** we lose the current line highlight in the editor if we invalidate
+                        // just the registers and flags scopes; this doesn't happen if we
+                        // invalidate the entire Variables area ***
+                        //this.sendEvent(new InvalidatedEvent(['registers', 'flags']));
+                        this.sendEvent(new InvalidatedEvent(['variables']));
+                    }
+                }
+
+                // get actual updated register value
+                value = this.registers.getRegister(name);
+            } else if (scope === 'flags') {
+                this.registers.setFlag(name, x);
+
+                // inform VS Code UI of needed updates
+                if ((name === 'M') || (name === 'X')) {
+                    // status register has changed, force UI to update registers and flags
+                    // *** TODO: consider limiting this update to only if a change occured ***
+                    if (this._useInvalidatedEvent) {
+                        // *** we lose the current line highlight in the editor if we invalidate
+                        // just the registers and flags scopes; this doesn't happen if we
+                        // invalidate the entire Variables area ***
+                        //this.sendEvent(new InvalidatedEvent(['registers', 'flags']));
+                        this.sendEvent(new InvalidatedEvent(['variables']));
+                    }
+                }
+
+                // get actual updated flag value
+                value = this.registers.getFlag(name);
+            } else if (ref < 0x10000000) {
+                // can't change stack summary
+                // *** TODO: consider if this is worthwhile or how to remove "Set Value" menu item ***
+            } else if (ref > 0x10000000) {
+                //const address = Math.trunc(ref / 16);
+                const address = parseInt(args.name, 16);
+                const ref = args.variablesReference & 0xfffffff;
+                const memoryReference = Math.trunc(ref / 16);
+
+                // currently we're only changing bytes here, limit entry to a byte
+                // *** TODO: this needs updated if we add symbols to Variables pane ***
+                //value = x & (this.ee65xx.mpu.mode ? 0xff : 0xffff);
+                value = x & 0xff;
+                this.ee65xx.obsMemory.memory[address] = value;
+
+                // update other elements of UI for change
+                // update paged variables (summary values)
+                if (this._useInvalidatedEvent) {
+                    this.sendEvent(new InvalidatedEvent(['variables']));
+                }
+
+                // update hex editor window if displayed
+                // *** TODO: VS Code is not issuing a supportsMemoryEvent so for
+                // now we'll set this as always true.
+                // For issue tracking see: https://github.com/microsoft/vscode-mock-debug/issues/78 ***
+                //if (this._useMemoryEvent) {
+                if (true) {
+                    // memoryReference here needs to be the memoryReference of the hex editor window,
+                    // not the reference of the memory changed
+                    // VSCode seems to know which location to update without setting offset to the address
+                    //this.sendEvent(new MemoryEvent(memoryReference.toString(16), address, 1));
+                    this.sendEvent(new MemoryEvent(memoryReference.toString(16), 0, 1));
+                }
             }
 
-            // update hex editor window if displayed
-            // *** TODO: VS Code is not issuing a supportsMemoryEvent so for
-            // now we'll set this as always true.
-            // For issue tracking see: https://github.com/microsoft/vscode-mock-debug/issues/78 ***
-//            if (this._useMemoryEvent) {
-            if (true) {
-                // memoryReference here needs to be the memoryReference of the hex editor window,
-                // not the reference of the memory changed
-                // VSCode seems to know which location to update without setting offset to the address
-//            this.sendEvent(new MemoryEvent(memoryReference.toString(16), address, 1));
-                this.sendEvent(new MemoryEvent(memoryReference.toString(16), 0, 1));
+            // Mock-Debug version with interesting ways of finding variables
+            //const container = this._variableHandles.get(args.variablesReference);
+            //const rv = container === 'locals'
+            //    ? this.ee65xx.getLocalVariable(args.name)
+            //    : container === 'register'
+            //    ? this.ee65xx.getRegisterVariable(args.name)
+            //    : container instanceof RuntimeVariable && container.value instanceof Array
+            //    ? container.value.find(v => v.name === args.name)
+            //    : undefined;
+            //
+            //if (rv) {
+            //    rv.value = this.convertToRuntime();
+            //    response.body = this.convertFromRuntime(rv);
+            //    if (rv.memory && rv.reference) {
+            //        this.sendEvent(new MemoryEvent(String(rv.reference), 0, rv.memory.length));
+            //    }
+            //}
+
+            if (typeof value === 'number') {
+                variable = {
+                    name: args.name,
+                    value: value.toString(16),
+                    variablesReference: 0
+                };
+
+                response.body = variable;
+            } else {
+                response.success = false;
             }
-        } else { // *** TODO: what needs to be here for unsupported set? ***
-            //name = '';
-            //value = ;
+        } else {
+            response.success = false;
         }
-
-        // Mock-Debug version with interesting ways of finding variables
-//        const container = this._variableHandles.get(args.variablesReference);
-//        const rv = container === 'locals'
-//            ? this.ee65xx.getLocalVariable(args.name)
-//            : container === 'register'
-//            ? this.ee65xx.getRegisterVariable(args.name)
-//            : container instanceof RuntimeVariable && container.value instanceof Array
-//            ? container.value.find(v => v.name === args.name)
-//            : undefined;
-//
-//        if (rv) {
-//            rv.value = this.convertToRuntime();
-//            response.body = this.convertFromRuntime(rv);
-//
-//            if (rv.memory && rv.reference) {
-//                this.sendEvent(new MemoryEvent(String(rv.reference), 0, rv.memory.length));
-//            }
-//        }
-
-        variable = {
-            name: args.name,
-            value: value.toString(16),
-            variablesReference: 0
-        };
-
-        response.body = variable;
 
         this.sendResponse(response);
     }
@@ -862,61 +925,67 @@ export class Debug65xxSession extends LoggingDebugSession {
             case 'repl':
                 // do we have an assignment expression?
                 // parse expression into:
-                // (\b[A-z]+[A-z0-9]*)      symbol
+                // (\b[A-z]+[A-z0-9]*\b)      symbol
                 // (?:\s*)                  optional whitespace (not captured)
                 // (={1})                   one equals sign
                 // (?:\s*)                  optional whitespace (not captured)
                 // (.*)                     right hand side of expression
-                const regExp = /(\b[A-z]+[A-z0-9]*)(?:\s*)(={1})(?:\s*)(.*)/;
+                const regExp = /(\b[A-z]+[A-z0-9]*\b)(?:\s*)(={1})(?:\s*)(.*)/;
                 const match: RegExpExecArray | null = regExp.exec(args.expression);
                 if (match && (match[2] === '=') && (match.length === 4)) {
-                    const symbol = this.sourceMap.getSymbol(match[1]);
-                    if (symbol) {
-                        // convert any symbols in the right hand side to their addresses
-                        const value = this.expEval(match[3]);
-                        if (typeof value === 'number') {
-                            this.setSymbolValue(symbol.address, symbol.size, value);
-                            result = value.toString(16);
-                        } else {
-                            result = '???';
+                    // convert any symbols in the right hand side to their addresses
+                    const value = this.expEval(match[3]);
+                    if (typeof value === 'number') {
+                        this.symbols.setValue(match[1], value);
+                        result = value.toString(16);
+
+                        // inform VS Code UI of needed updates
+                        if ((match[1] === 'PC') || (match[1] === 'K')) {
+                            // program counter or program bank register has changed
+                            // force update in UI by issuing a continued and a new stopped event
+                            this.sendEvent(new ContinuedEvent(Debug65xxSession.threadID));
+                            this.sendEvent(new StoppedEvent('stopOnPCUpdate', Debug65xxSession.threadID));
+                        } else if (match[1] === 'P') {
+                            // status register has changed, for UI to update variables
+                            if (this._useInvalidatedEvent) {
+                                this.sendEvent(new InvalidatedEvent(['variables']));
+                            }
                         }
                     } else {
                         result = '???';
                     }
                     break;
                 }
+
                 // else fall through to evaluate expression
 
             case 'watch':
             case 'hover':
-                let symbol = this.sourceMap.getSymbol(args.expression);
-                const mem = this.ee65xx.obsMemory.memory;
+                const symbol = this.symbols.get(args.expression);
 
                 if (symbol) {
-                    // we have just a symbol, dereference it
-                    switch (symbol.size) {
-                        case 1:
-                        case 2:
-                        case 3:
-                        case 4:
-                            result = this.getSymbolValue(symbol.address, symbol.size).toString(16);
-                            break;
-                        default:
-                            result = toHexString(mem.slice(symbol.address, symbol.address + symbol.size));
-                            //result = toHexString(mem.slice(symbol.address, symbol.address + 10));
-                            if (args.context === 'watch') {
-                                ref = 0x10000000 + symbol.address;
-                                //ref = (symbol.address * 16) + Math.min(symbol.size, 0xff);
+                    const symString = this.symbols.getString(args.expression);
+                    if (symString) {
+                        result = symString;
+                    }
+
+                    // do some special formating if we have a memory symbol
+                    const address = symbol.address;
+                    const size = symbol.size;
+                    if (address && size) {
+                        if (args.context === 'hover') {
+                            result = address.toString(16) + ': ' + symString;
+                        } else if (args.context === 'watch') {
+                            if (size > 4) {
+                                ref = 0x10000000 + address;
+                                //ref = (address * 16) + Math.min(size, 0xff);
                                 // *** TODO: paged variables will not display the View Binary Data icon
                                 // see: https://github.com/microsoft/vscode-mock-debug/issues/78.
                                 // Have to have a variable represent this in an expanded view.  Consider adding. ***
-                                //mref = symbol.address.toString(16);
-                                iv = symbol.size; // using indexedVariables triggers VS Code's paged variable interface
+                                //mref = address.toString(16);
+                                iv = size; // using indexedVariables triggers VS Code's paged variable interface
                             }
-                            break;
-                    }
-                    if (args.context === 'hover') {
-                        result = symbol.address.toString(16) + ': ' + result;
+                        }
                     }
                 } else if (args.expression.startsWith('[') && args.expression.endsWith(']') && args.expression.slice(1, -1).includes(':')) {
                     // we have a memory array request, [start:end]
@@ -929,6 +998,8 @@ export class Debug65xxSession extends LoggingDebugSession {
                         const start = this.expEval(range[0]);
                         const end = this.expEval(range[1]);
                         if ((typeof start === 'number') && (typeof end === 'number') && (end >= start)) {
+                            const mem = this.ee65xx.obsMemory.memory;
+
                             result = toHexString(mem.slice(start, end + 1));
                             // display as paged memory
                             // I don't want to create a handle for every memory range and
@@ -950,20 +1021,18 @@ export class Debug65xxSession extends LoggingDebugSession {
                     if (typeof value === 'number') {
                         result = value.toString(16);
                     } else {
-                        result = '???';
+                        if (args.context === 'hover') {
+                            response.success = false;
+                        } else {
+                            result = '???';
+                        }
                     }
                 }
                 break;
 
             default:
-                // *** TODO: how do we get here ***
-                // just return address of symbol if found
-                symbol = this.sourceMap.getSymbol(args.expression);
-                if (symbol !== undefined) {
-                    result = symbol.address.toString(16);
-                } else {
-                    response.success = false;
-                }
+                // *** TODO: how do we get here? ***
+                response.success = false;
                 break;
         }
 
@@ -983,18 +1052,18 @@ export class Debug65xxSession extends LoggingDebugSession {
     // (also used if supportsSetVariable is false and a Variable's evaluateName property is set)
     protected setExpressionRequest(response: DebugProtocol.SetExpressionResponse, args: DebugProtocol.SetExpressionArguments): void {
 
-        const symbol = this.sourceMap.getSymbol(args.expression);
+        const symbol = this.symbols.get(args.expression);
         if (symbol) {
             const value = this.expEval(args.value);
             if (typeof value === 'number') {
-                this.setSymbolValue(symbol.address, symbol.size, value);
+                this.symbols.setValue(args.expression, value);
                 response.body = { value: args.value };
                 this.sendResponse(response);
             } else {
                 this.sendErrorResponse(response, {
                     id: 1003,
                     format: `'{lexpr}' not an assignable expression`,
-                    variables: { lexpr: args.expression },
+                    variables: { lexpr: args.value },
                     showUser: true
                 });
             }
@@ -1397,7 +1466,7 @@ export class Debug65xxSession extends LoggingDebugSession {
 
 
     // *******************************************************************************************
-    // private factors
+    // private DAP Request related methods
 
     private registerScopes(mpu: MPU65816, memory: Uint8Array, fbin: string) {
         this.scopes.set('registers', this._variableHandles.create('registers'));
@@ -1553,15 +1622,11 @@ export class Debug65xxSession extends LoggingDebugSession {
                 bp.verified = true;
                 bp.address = bpAddress;
 
-                // convert symbols to their addresses if condition and/or hitCondition are set
-                // this speeds up checking if the breakpoint is hit later by already having
-                // looked up the symbol's reference.  Note that expSymbolToAddress will not
-                // convert symbol arrays, such as symbol[exp].
                 if (sbp.condition) {
-                    bp.condition = this.expSymbolToAddress(sbp.condition);
+                    bp.condition = sbp.condition;
                 }
                 if (sbp.hitCondition) {
-                    bp.hitCondition = this.expSymbolToAddress(sbp.hitCondition);
+                    bp.hitCondition = sbp.hitCondition;
 
                     const hcbp = this.hitConditionBreakpoints.get(bpAddress);
                     if (!hcbp) {
@@ -1681,7 +1746,7 @@ export class Debug65xxSession extends LoggingDebugSession {
         // for the breakpoint
         let bpAddress: number | undefined = parseInt(fbp.name);
         if (isNaN(bpAddress)) {
-            bpAddress = this.sourceMap.getSymbolAddress(fbp.name);
+            bpAddress = this.symbols.getAddress(fbp.name);
         }
         if (bpAddress) {
             bp.verified = true;
@@ -1694,13 +1759,11 @@ export class Debug65xxSession extends LoggingDebugSession {
                 bp.line = bpline;
             }
 
-            // convert symbols to their addresses
-            // if condition and/or hitCondition are set
             if (fbp.condition) {
-                bp.condition = this.expSymbolToAddress(fbp.condition);
+                bp.condition = fbp.condition;
             }
             if (fbp.hitCondition) {
-                bp.hitCondition = this.expSymbolToAddress(fbp.hitCondition);
+                bp.hitCondition = fbp.hitCondition;
 
                 const hcbp = this.hitConditionBreakpoints.get(bpAddress);
                 if (!hcbp) {
@@ -1730,7 +1793,7 @@ export class Debug65xxSession extends LoggingDebugSession {
             if (!bp.verified) {
 
                 // check if name is a recognized symbol
-                let bpAddress = this.sourceMap.getSymbolAddress(name);
+                let bpAddress = this.symbols.getAddress(name);
 
                 // if so, set it as valid and update its address
                 if (!bpAddress) {
@@ -1780,96 +1843,93 @@ export class Debug65xxSession extends LoggingDebugSession {
         this.opcodeExceptions = opcodeExceptions;
     }
 
-
-    // *******************************************************************************************
-    // private helper methods
-
-    private getSymbolValue(address: number, size: number): number {
+    private expEval(exp: string): number | string | undefined {
         const mem = this.ee65xx.obsMemory.memory;
-        var result;
+        let result: number | string | undefined;
+        let sexp = '';
+        const utf8Encode = new TextEncoder();
 
-        switch (size) {
-            case 2:
-                result = (mem[address] + (mem[address + 1] << 8));
-                break;
-            case 3:
-                result = mem[address] +
-                    (mem[address + 1] << 8) +
-                    (mem[address + 2] << 16);
-                break;
-            case 4:
-                result = mem[address] +
-                    (mem[address + 1] << 8) +
-                    (mem[address + 2] << 16) +
-                    (mem[address + 3] << 24);
-                break;
-            case 1:
-            default:
-                result = mem[address];
-                break;
+        if (!hasMatchedBrackets(exp)) {
+            // can't work with unmatched bracket
+            return undefined;
         }
-        return result;
-    }
 
-    private setSymbolValue(address: number, size: number, value: number) {
-        const mem = this.ee65xx.obsMemory.memory;
+        // replace any character references with their ascii decoded byte equivalent
+        exp = exp.replace(/(?:')(.{1})(?:')/g, (match, c) => {
+            return utf8Encode.encode(c)[0].toString();
+        });
 
-        mem[address] = value & 0xff;
-        switch (size) {
-            case 4:
-                mem[address + 3] = (value & 0xff000000) >> 24;
-                // fall through
-            case 3:
-                mem[address + 2] = (value & 0xff0000) >> 16;
-                // fall through
-            case 2:
-                mem[address + 1] = (value & 0xff00) >> 8;
-                break;
-            default:
-                break;
+        // handle complex array expressions: sym[exp] or a memory reference, [exp]
+        // where exp includes arrays
+        let start = exp.indexOf('[');
+        let end = start >= 0 ? findClosingBracket(exp, start) : -1;
+        let hasArrayRef = (start >= 0) && (end >= 0);
+
+        while (hasArrayRef) {
+            // evaluate any array references subexpressions
+            sexp = exp.substring(start + 1, end);
+
+            // does subexpression contain any array references?
+            result = this.expEval(sexp);
+            if (result !== undefined) {
+                exp = exp.replace(sexp, result.toString());
+            } else {
+                return undefined;
+            }
+
+            start = exp.indexOf('[', start + 1);
+            end = start >= 0 ? findClosingBracket(exp, start) : -1;
+            hasArrayRef = (start >= 0) && (end >= 0);
         }
-    }
 
-    private getSymbolValueFromString(addressString: string): number {
-        const x = addressString.split(':');
-        const address = parseInt(x[0]);
-        const size = parseInt(x[1]);
-        if (address && size) {
-            return this.getSymbolValue(address, size);
-        } else {
-            return 0; // *** TODO: consider processing ***
+        // handle simple arrays: sym[exp] or a memory reference, [exp]
+        // where exp doesn't include arrays
+        start = exp.indexOf('[');
+        end = start >= 0 ? findClosingBracket(exp, start) : -1;
+        hasArrayRef = (start >= 0) && (end >= 0);
+
+        while (hasArrayRef) {
+            // evaluate any array references
+            sexp = exp.substring(0, end + 1);
+
+            result = sexp.replace(/(\b[A-z]+[A-z0-9]*\b)*(?:\[)(.*)(?:\])/g, (match, sym, exp) => {
+                // we have an array reference
+                // evaluate exp
+                const value = this.expEval(exp);
+
+                if (typeof value === 'number') {
+                    const symbol = this.symbols.get(sym);
+                    const symAddress = symbol ? symbol.address : 0;
+                    return mem[(symAddress ?? 0) + value].toString();
+                } else {
+                    return '???';
+                }
+            });
+
+            if (result.includes('???')) {
+                return undefined;
+            } else {
+                exp = exp.replace(sexp, result);
+            }
+
+            start = exp.indexOf('[');
+            end = start >= 0 ? findClosingBracket(exp, start) : -1;
+            hasArrayRef = (start >= 0) && (end >= 0);
         }
-    }
 
-    // replace symbol in expression with its adddress and size
-    // for example if putc = $f001, then the expression
-    // 'putc == 5' becomes '"61441:1" == 5'
-    private expSymbolToAddress(exp: string): string {
-        const nexp = exp.replace(/(\b[A-z]+[A-z0-9]*)/g, (match, sym) => {
-            const symbol = this.sourceMap.getSymbol(sym);
-            if(symbol) {
-                return '\"' + symbol.address.toString() + ':' + symbol.size.toString() + '\"';
+        // replace symbols in expression with their values
+        exp = exp.replace(/(\b[A-z]+[A-z0-9]*\b)/g, (match, sym) => {
+            const value = this.symbols.getValue(sym);
+            if (typeof value === 'number') {
+                return value;
             } else {
                 return sym;
             }
         });
 
-        return nexp;
-    }
-
-    // evaluate an experssion and return its value
-    // dereferencing any addresses in an expression
-    // for example if address $f001 = 5 then the
-    // expression '"61441:1" == 5' returns true
-    private modExpEval(exp: string): number | undefined {
-        // regexp w/o quotes (?<=")([0-9]+)(?=")
-        const nexp = exp.replace(/("[0-9]+:[0-9]+")/g, (match, sym) => {
-            const value = this.getSymbolValueFromString(sym.slice(1, -1));
-            return value.toString();
-        });
-
+        // evaluate the expression
         try {
-            const result = Function(`"use strict";return (${nexp})`)();
+            result = Function(`"use strict";return (${exp})`)();
 
             if (typeof result === 'boolean') {
                 return result ? 1 : 0;
@@ -1881,70 +1941,9 @@ export class Debug65xxSession extends LoggingDebugSession {
         }
     }
 
-    private expEval(exp: string): number | string | undefined {
-        const mem = this.ee65xx.obsMemory.memory;
-        let result: number | string | undefined;
-        let sexp = '';
 
-        if (!hasMatchedBrackets(exp)) {
-            // can't work with unmatched bracket
-            return undefined;
-        }
-
-        // handle array expressions
-        let start = exp.indexOf('[');
-        let end = start >= 0 ? findClosingBracket(exp, start) : -1;
-        let hasArrayRef = (start >= 0) && (end >= 0);
-
-        while (hasArrayRef) {
-            // evaluate any array references subexpressions
-            sexp = exp.substring(start + 1, end);
-
-            // does subexpression contain any array references?
-            result = this.expEval(sexp);
-            exp = exp.replace(sexp, (result !== undefined) ? result.toString() : '???');
-
-            start = exp.indexOf('[', start + 1);
-            end = start >= 0 ? findClosingBracket(exp, start) : -1;
-            hasArrayRef = (start >= 0) && (end >= 0);
-        }
-
-        // handle simple array
-        start = exp.indexOf('[');
-        end = start >= 0 ? findClosingBracket(exp, start) : -1;
-        hasArrayRef = (start >= 0) && (end >= 0);
-
-        while (hasArrayRef) {
-            // evaluate any array references
-            sexp = exp.substring(0, end + 1);
-            let symb = '';
-
-            result = sexp.replace(/(\b[A-z]+[A-z0-9]*)*(?:\[)(.*)(?:\])/g, (match, sym, exp) => {
-                // we have an array reference: sym[exp]
-                // or a simple memory reference, [exp]
-                const symbol = this.sourceMap.getSymbol(sym);
-                const symAddress = symbol ? symbol.address : 0;
-                const value = this.expEval(exp);
-                symb = sym;
-
-                if (typeof value === 'number') {
-                    return mem[symAddress + value].toString();
-                }
-
-                return match;
-            });
-
-            exp = exp.replace(sexp, result);
-
-            start = exp.indexOf('[');
-            end = start >= 0 ? findClosingBracket(exp, start) : -1;
-            hasArrayRef = (start >= 0) && (end >= 0);
-        }
-
-        result = this.expSymbolToAddress(exp);
-
-        return this.modExpEval(result);
-    }
+    // *******************************************************************************************
+    // private helper methods
 
     private formatAddress(x: number, pad = 8) {
 //        return this._addressesInHex ? '0x' + x.toString(16).padStart(pad, '0') : x.toString(10);
@@ -1960,35 +1959,4 @@ export class Debug65xxSession extends LoggingDebugSession {
         return new Source(path.basename(source), source);
     }
 
-}
-
-// find index of matching closing bracket
-// assumes matched brackets
-function findClosingBracket(text: string, openPos: number): number {
-    let closePos = openPos;
-    let counter = 1;
-    while (counter > 0) {
-        const c = text[++closePos];
-        if (c === '[') {
-            counter++;
-        } else if (c === ']') {
-            counter--;
-        }
-    }
-
-    return closePos;
-}
-
-// returns true if brackets are matched
-function hasMatchedBrackets(text: string): boolean {
-    let counter = 0;
-    for (let i = 0; i < text.length; i++) {
-        const c = text[i];
-        if (c === '[') {
-            counter++;
-        } else if (c === ']') {
-            counter--;
-        }
-    }
-    return counter === 0;
 }

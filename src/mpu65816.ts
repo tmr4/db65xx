@@ -164,6 +164,39 @@ export class MPU65816 {
         }
     }
 
+    // public method to set the status register from the UI
+    public setP(p: number) {
+        p &= 0xff;  // mask it
+        if (this.mode) {
+            // *** TODO:
+            // the 65816 Programming manual has the this can change the BREAK flag
+            // verify this isn't true ***
+            this.p = p | this.BREAK | this.UNUSED;
+        }
+        else {
+            if ((p & this.MS) != (this.p & this.MS)) {
+                if (p & this.MS) {
+                    // A 16 => 8, save B, mask off high byte of A
+                    this.b = (this.a >> this.BYTE_WIDTH) & this.byteMask;
+                    this.a = this.a & this.byteMask;
+                }
+                else {
+                    // A 8 => 16, set A = b a
+                    this.a = (this.b << this.BYTE_WIDTH) + this.a;
+                    this.b = 0;
+                }
+            }
+            if ((p & this.IRS) != (this.p & this.IRS)) {
+                if (p & this.IRS) {
+                    // X,Y 16 => 8, truncate X,Y
+                    this.x = this.x & this.byteMask;
+                    this.y = this.y & this.byteMask;
+                }
+            }
+            this.p = p;
+        }
+    }
+
     private reset() {
         // pc is just the 16 bit program counter and must be combined with pbr to
         // access the program in memory

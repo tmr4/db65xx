@@ -46,47 +46,89 @@ export class Registers {
         };
     }
 
-    public setRegister(register: string, value: number) {
+    public setRegister(register: string, x: number) {
+        let value = x;
         const mpu = this._mpu;
+        const mode = mpu.mode;
+        const ms = mpu.MS & mpu.p;
+        const irs = mpu.IRS & mpu.p;
+
         switch (register) {
             case 'K':
+                value = value & 0xff;
                 this._registers.K = value;
                 mpu.pbr = value;
                 break;
             case 'PC':
+                value = value & 0xffff;
                 mpu.pc = value;
                 this._registers.PC = value;
                 break;
             case 'A':
+                value = value & (mode | ms ? 0xff : 0xffff);
                 this._registers.A = value;
                 mpu.a = value;
                 break;
             case 'X':
+                value = value & (mode | irs ? 0xff : 0xffff);
                 this._registers.X = value;
                 mpu.x = value;
                 break;
             case 'Y':
+                value = value & (mode | irs ? 0xff : 0xffff);
                 this._registers.Y = value;
                 mpu.y = value;
                 break;
             case 'P':
-                this._registers.P = value;
-                mpu.p = value;
+                mpu.setP(value);
+                this._registers.P = mpu.p;
+                this._registers.A = mpu.a;
+                this._registers.X = mpu.x;
+                this._registers.Y = mpu.y;
                 break;
             case 'B':
+                value = value & 0xff;
                 this._registers.B = value;
                 mpu.dbr = value;
                 break;
             case 'D':
+                value = value & 0xffff;
                 this._registers.D = value;
                 mpu.dpr = value;
                 break;
             case 'SP':
+                value = value & (mode ? 0xff : 0xffff);
                 this._registers.SP = value;
                 mpu.sp = value;
                 break;
             default:
                 break;
+        }
+    }
+
+    public getRegister(register: string): number | undefined {
+        const mpu = this._mpu;
+        switch (register) {
+            case 'K':
+                return mpu.pbr;
+            case 'PC':
+                return mpu.pc;
+            case 'A':
+                return mpu.a;
+            case 'X':
+                return mpu.x;
+            case 'Y':
+                return mpu.y;
+            case 'P':
+                return mpu.p;
+            case 'B':
+                return mpu.dbr;
+            case 'D':
+                return mpu.dpr;
+            case 'SP':
+                return mpu.sp;
+            default:
+                return undefined;
         }
     }
 
@@ -106,44 +148,94 @@ export class Registers {
         };
     }
 
-    public setFlag(register: string, value: number) {
+    public setFlag(name: string, value: number) {
         const mpu = this._mpu;
-        const flag = value === 0 ? 0 : 1;
-        switch (register) {
+        let p = mpu.p;
+        let flag = 0;
+
+        // note the flag's bit position and change its internal value
+        // except for M and X where we need to see if flag is actually changed
+        switch (name) {
             case 'N':
                 this._p.N = flag;
-                mpu.p |= flag << mpu.NEGATIVE;
+                flag = mpu.NEGATIVE;
                 break;
             case 'V':
                 this._p.V = flag;
-                mpu.pbr = flag << mpu.OVERFLOW;
+                flag = mpu.OVERFLOW;
                 break;
             case 'M':
-                this._p.M = flag;
-                mpu.a = flag << mpu.MS;
+                flag = mpu.MS;
                 break;
             case 'X':
-                this._p.X = flag;
-                mpu.x = flag << mpu.IRS;
+                flag = mpu.IRS;
                 break;
             case 'D':
                 this._p.D = flag;
-                mpu.y = flag << mpu.DECIMAL;
+                flag = mpu.DECIMAL;
                 break;
             case 'I':
                 this._p.I = flag;
-                mpu.p = flag << mpu.INTERRUPT;
+                flag = mpu.INTERRUPT;
                 break;
             case 'Z':
                 this._p.Z = flag;
-                mpu.dbr = flag << mpu.ZERO;
+                flag = mpu.ZERO;
                 break;
             case 'C':
                 this._p.C = flag;
-                mpu.dpr = flag << mpu.CARRY;
+                flag = mpu.CARRY;
                 break;
             default:
                 break;
+        }
+
+        // update p for flag being modified
+        if (value) {
+            p |= flag;
+        } else {
+            p &= ~flag;
+        }
+
+        // update mpu status register
+        // this might not do anything depending on the processor state
+        // and flag being changed
+        mpu.setP(p);
+
+        // update the internal M or X flag with the actual result of the change
+        switch (name) {
+            case 'M':
+                this._p.M = (mpu.p & mpu.MS) !== 0 ? 1 : 0;
+                break;
+            case 'X':
+                this._p.X = (mpu.p & mpu.IRS) !== 0 ? 1 : 0;
+                break;
+            default:
+                break;
+        }
+    }
+
+    public getFlag(name: string): number | undefined {
+        const p = this.p;
+        switch (name) {
+            case 'N':
+                return p.N;
+            case 'V':
+                return p.V;
+            case 'M':
+                return p.M;
+            case 'X':
+                return p.X;
+            case 'D':
+                return p.D;
+            case 'I':
+                return p.I;
+            case 'Z':
+                return p.Z;
+            case 'C':
+                return p.C;
+            default:
+                return undefined;
         }
     }
 

@@ -6,6 +6,8 @@ import { TextDecoder } from 'node:util';
 import * as path from 'path';
 
 import { readDebugFile, DbgMap, DbgSpan, DbgLine } from './dbgService';
+import { Symbols } from './symbols';
+import { Registers } from './registers';
 
 interface IModule {
     name: string;
@@ -46,19 +48,9 @@ export interface ISourceMap {
     sourceLine: number;
 }
 
-// *** TODO: consider adding file ID
-// this isn't available from VICE symbol file
-// but may be useful for identical symbols in
-// different source files.  I think the dbgfile
-// has this covered and referencing file here isn't needed. ***
-export interface ISymbol {
-    address: number;
-    size: number;       // size in bytes
-//    fileId: number;
-}
-
 export class SourceMap {
-    private symbolMap = new Map<string, ISymbol>(); // symbol/address pair
+//    private symbolMap = new Map<string, ISymbol>(); // symbol/address pair
+    public symbols: Symbols;
     private sourceMap = new Map<number, ISourceMap>(); // binary address/source mapping
     private reverseMap = new Map<number, Map<number, number>>(); // source line #/binnary address mapping
 
@@ -68,9 +60,11 @@ export class SourceMap {
     private segments: ISegment[] = [];   // records map file segments and their associated start address
     private segFiles: ISegFile[] = [];   // stores temp file object for each segment
 
-    public constructor(srcDir: string, listDir: string, basename: string, extension: string) {
+    public constructor(srcDir: string, listDir: string, basename: string, extension: string, memory: Uint8Array, registers: Registers) {
         let dbgFile = false;
         const file = path.join(listDir, basename + '.dbg');
+
+        this.symbols = new Symbols(memory, registers);
 
         // try creating source and symbol maps with the ld65 debug file
         if (fs.existsSync(file)) {
@@ -102,14 +96,6 @@ export class SourceMap {
         }
 
         return address;
-    }
-
-    public getSymbol(symbol: string): ISymbol | undefined {
-        return this.symbolMap.get(symbol);
-    }
-
-    public getSymbolAddress(symbol: string): number | undefined {
-        return this.symbolMap.get(symbol)?.address;
     }
 
     public getSourceFile(index: number | undefined): string {
@@ -173,7 +159,7 @@ export class SourceMap {
                 // sym	id=0,name="print_char",addrsize=absolute,scope=0,def=9,ref=21,val=0x8014,seg=0,type=lab
                 const address = sym.val;
                 if (address) {
-                    this.symbolMap.set(sym.name.slice(1, -1), { address: parseInt(address, 16), size: sym.size ? sym.size : 1 });
+                    this.symbols.set(sym.name.slice(1, -1), { address: parseInt(address, 16), size: sym.size ? sym.size : 1 });
                 }
             }
         }
@@ -212,7 +198,7 @@ export class SourceMap {
                 // save symbol
                 // don't bother with local symbols
                 if (!match[2].startsWith('@')) {
-                    this.symbolMap.set(match[2], { address: parseInt(match[1], 16), size: 1 });
+                    this.symbols.set(match[2], { address: parseInt(match[1], 16), size: 1 });
                 }
             }
         }
@@ -415,7 +401,8 @@ export class SourceMap {
                                         //console.log("source and listing don't match at module/line: " + module.name + n.toString());
                                     }
                                     sline++;
-                                    const sym = this.symbolMap.get(label.slice(0, -1));
+                                    //const sym = this.symbolMap.get(label.slice(0, -1));
+                                    const sym = this.symbols.get(label.slice(0, -1)); // *** TODO: is this doing what I think it is ***
                                     if (sym) {
                                         const dir = s_source.slice(1).split(' ');
                                         switch (dir[0]) {

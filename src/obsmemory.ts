@@ -11,13 +11,15 @@ export class ObsMemory {
     static readCallbacks = new Map<string | symbol, (number) => number>();
 
     public constructor(bytes: Uint8Array) {
-//        this.memory = new Uint8Array(bytes);
-        // alocate 4 banks of memory
+        //this.memory = new Uint8Array(bytes);
+        // alocate a minimum of 4 banks of memory
+        const size = Math.max(0x40000, bytes.length);
+
         // need to copy bytes over, if we don't memory doesn't expand as we access it
         // as it does in Python (? is this true?)
         // *** TODO: look for a more efficient way to do this ***
-        this.memory = new Uint8Array(0x40000);
-        for(let i = 0; i < 0x40000; i++) {
+        this.memory = new Uint8Array(size);
+        for(let i = 0; i < size; i++) {
             if(bytes[i]  !== undefined) {
                 this.memory[i] = bytes[i];
             }

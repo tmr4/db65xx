@@ -80,3 +80,34 @@ export function toHexString(byteArray, size: number = 8, length: number = 47) {
         }).join(' ').slice(0, length);
     }
 }
+
+// find index of matching closing bracket
+// assumes matched brackets
+export function findClosingBracket(text: string, openPos: number): number {
+    let closePos = openPos;
+    let counter = 1;
+    while (counter > 0) {
+        const c = text[++closePos];
+        if (c === '[') {
+            counter++;
+        } else if (c === ']') {
+            counter--;
+        }
+    }
+
+    return closePos;
+}
+
+// returns true if brackets are matched
+export function hasMatchedBrackets(text: string): boolean {
+    let counter = 0;
+    for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (c === '[') {
+            counter++;
+        } else if (c === ']') {
+            counter--;
+        }
+    }
+    return counter === 0;
+}
