@@ -1,5 +1,9 @@
 # Change Log
 
+### 0.0.6a
+
+- Bug fix: fixed waiting for terminal input
+
 ### 0.0.6
 
 - More intuitive status register display

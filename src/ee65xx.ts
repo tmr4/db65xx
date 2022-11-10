@@ -167,7 +167,7 @@ export class EE65xx extends EventEmitter {
     // run source code for a given number of steps
     private run() {
         // are we waiting for input?
-        let waiting = this.mpu.waiting || getcWaiting;
+        let waiting = this.mpu.waiting || getcWaiting();
         let count = 0;
 
         // Take 100000 steps every interval except when we're waiting for input.
@@ -193,7 +193,7 @@ export class EE65xx extends EventEmitter {
                 steps = 1000; // 20 causes long startup
             }
             this.step(false);
-            waiting = this.mpu.waiting || getcWaiting;
+            waiting = this.mpu.waiting || getcWaiting();
         }
         count = 0;
         this.isBreak = false;
