@@ -2,35 +2,16 @@
 
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
+import { TextEncoder } from 'node:util';
 
 import { MPU65816 } from './mpu65816';
 import { ObsMemory } from './obsmemory';
 import { Interrupts } from './interrupts';
-import { terminalStart, terminalDispose, terminalWrite } from './terminal';
+import { terminalStart, terminalDispose, getcWaiting, putc, getc } from './terminal';
 import { Debug65xxSession } from './da65xx';
 
-var buf = Buffer.alloc(0);
-
-// when characters are written to the putc address they will be stored in a buffer
-// and flushed to the console upon receipt of a CR
-function putc(value: number): void {
-    // gather putc characters until EOL
-    if (value === 0xd) {     // is CR
-        //console.log(buf.toString());   // console log will add the CR
-        buf = Buffer.alloc(0);           // clear buffer for next time
-    }
-    else {
-        var buf1 = Buffer.from(String.fromCharCode(value));
-        var bufarray = [buf, buf1];
-
-        // add character to buffer
-        //buf = buf + String.fromCharCode(value);
-        buf = Buffer.concat(bufarray);
-    }
-}
-
-function getc(value: number): void {
-}
+// *******************************************************************************************
+// 65xx Execution Engine
 
 // EE65xx is a 65xx execution engine with debugging support.
 // it "executes" a 65xx binary and sends events to the debug adapter informing it
@@ -71,7 +52,7 @@ export class EE65xx extends EventEmitter {
     // public program control methods
 
     // Start executing the given program
-    public start(bsource: string = '', fsource: string = '', aciaAddr: number | undefined, viaAddr: number | undefined, stopOnEntry: boolean = true, debug: boolean = true): void {
+    public start(bsource: string = '', fsource: string = '', aciaAddr: number | undefined, viaAddr: number | undefined, stopOnEntry: boolean = true, debug: boolean = true, input?: number, output?: number): void {
 
         terminalStart('65816 Debug', viaAddr ? true : false); // start debug terminal if not already started
         this.isDebug = debug;
@@ -85,8 +66,10 @@ export class EE65xx extends EventEmitter {
                 this.dbInt = new Interrupts(this, this.mpu);
             }
             this.dbInt.addVIA(viaAddr, this.obsMemory);
+        } else if (input !== undefined) {
+            this.obsMemory.subscribeToRead(input, getc);
         } else {
-            //this.obsMemory.subscribeToWrite(this.getcAddr, getc); // = 0xf004
+            this.obsMemory.subscribeToRead(0xf004, getc);
         }
 
         if (aciaAddr) {
@@ -95,10 +78,10 @@ export class EE65xx extends EventEmitter {
                 this.dbInt = new Interrupts(this, this.mpu);
             }
             this.dbInt.addACIA(aciaAddr, fsource, this.obsMemory);
+        } else if (output !== undefined) {
+            this.obsMemory.subscribeToWrite(output, putc);
         } else {
-            this.obsMemory.subscribeToWrite(0xf001, (value: number): void => {
-                terminalWrite(String.fromCharCode(value));
-            });
+            this.obsMemory.subscribeToWrite(0xf001, putc);
         }
 
         // *** TODO: continue doesn't make any sense here we need something similar to loop in childp ***
@@ -114,9 +97,15 @@ export class EE65xx extends EventEmitter {
         }
     }
 
-    public end() {
+    // inform da65xx of user or other exit request
+    public exit(code: number) {
+        this.sendEvent('exitRequest', code);
+    }
+
+    // stop run loop and dispose of integrated VS Code terminal
+    public terminate() {
+        this.pause();
         terminalDispose();
-        this.sendEvent('exited');
     }
 
     // Continue execution to address or until we hit a breakpoint
@@ -152,6 +141,7 @@ export class EE65xx extends EventEmitter {
         return false;
     }
 
+    // stop current and future run loops
     public pause() {
         clearInterval(this.continueID);
         this.isBreak = true;     // force step loop to exit
@@ -176,12 +166,17 @@ export class EE65xx extends EventEmitter {
 
     // run source code for a given number of steps
     private run() {
+        // are we waiting for input?
+        let waiting = this.mpu.waiting || getcWaiting;
         let count = 0;
+
         // Take 100000 steps every interval except when we're waiting for input.
         // Reduce steps when we're waiting for input to avoid CPU churn.
-        // We're in the next_keyboard_buffer_char loop (about 16 steps) when
-        // we're waiting for input.  These values seem to give good performance/idle cpu.
-        let steps = this.mpu.waiting ? 20 : 100000;
+        // In sFroth, we're in the next_keyboard_buffer_char loop (about 16 steps)
+        // when we're waiting for input.  Similarly, in hello_world, we're in the
+        // get char loop (similar in length).
+        // These values seem to give good performance/idle cpu.
+        let steps = waiting ? 20 : 100000;
 
         // take a single step to get over a breakpoint
         this.step(false);
@@ -191,13 +186,14 @@ export class EE65xx extends EventEmitter {
                 clearInterval(this.continueID);
                 this.isBreak = true;     // force step loop to exit
                 break;
-            } else if (this.mpu.waiting && (steps === 100000)) {
+            } else if (waiting && (steps === 100000)) {
                 // reduce steps if we've shifted to waiting during run loop
                 // this should further reduce churn but at the cost of responsiveness
                 // *** TODO: evaluate and tune these if necessary ***
                 steps = 1000; // 20 causes long startup
             }
             this.step(false);
+            waiting = this.mpu.waiting || getcWaiting;
         }
         count = 0;
         this.isBreak = false;
@@ -208,5 +204,4 @@ export class EE65xx extends EventEmitter {
             this.emit(event, ...args);
         }, 0);
     }
-
 }

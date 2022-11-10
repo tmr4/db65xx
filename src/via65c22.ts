@@ -161,7 +161,7 @@ export class VIA {
                 if (this.escape) {
                     this.escape = false;
                     if ((byte === 0x51) || (byte === 0x71)) {
-                        this.int.end();
+                        this.int.exit(0);
                     }
                 }
                 else {

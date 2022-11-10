@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { TextEncoder, TextDecoder } from 'node:util';
 
 import { setLastChar } from './via65c22';
 
@@ -45,6 +46,35 @@ import { setLastChar } from './via65c22';
 //    preserveFocus: false
 //};
 
+// *******************************************************************************************
+// Simple terminal I/O support
+
+var waiting = false;
+
+// wriate ascii byte to terminal
+export function putc(byte: number): void {
+    terminalWrite(String.fromCharCode(byte));
+}
+
+// return acii byte from terminal buffer if available
+// otherwise set waiting flag to true to allow
+// execution engine to throttle its polling
+export function getc(value: number): number {
+    const char = terminalRead();
+    if (char !== '') {
+        const utf8Encode = new TextEncoder();
+        const byte = utf8Encode.encode(char)[0];
+        waiting = false;
+        return byte;
+    } else {
+        waiting = true;
+        return 0;
+    }
+}
+
+
+// *******************************************************************************************
+// VS Code terminal
 
 export class Terminal {
     _terminal: vscode.Terminal;
@@ -57,6 +87,11 @@ export class Terminal {
     public get kbhit() {
         return this._kbhit;
     }
+
+    private buffer: string = '';
+    private in = 0;
+    private out = 0;
+
     public constructor(name: string, useVIA: boolean = false) {
         this._terminal = this.terminalCreate(name, useVIA);
         this._lastChar = '';
@@ -72,6 +107,27 @@ export class Terminal {
                 if(useVIA) {
                     setLastChar(data);
                 } else {
+                    if (data === '\x7f') { // Backspace
+                        if (this.buffer.length === 0) {
+                            return;
+                        }
+
+                        //this.buffer = this.buffer.slice(0, this.buffer.length - 1);
+
+                        // Move cursor backward
+                        this._writeEmitter.fire('\x1b[D');
+
+                        // Delete character
+                        this._writeEmitter.fire('\x1b[P');
+                        //this.in--;
+                        this.in++;
+                        this.buffer += new TextDecoder().decode(Buffer.from('\x08'));
+                        return;
+                    } else if (data === '\r') {
+                        this._writeEmitter.fire("\n");
+                    }
+                    this.buffer += data;
+                    this.in++;
                     this._writeEmitter.fire(data);
                 }
             }
@@ -88,9 +144,9 @@ export class Terminal {
         this._writeEmitter.fire('\x1b[2J\x1b[3J\x1b[;H');
     }
 
-    public terminalWrite(line: string): void {
-        this._writeEmitter.fire(line);
-        if(line === '\r') {
+    public terminalWrite(char: string): void {
+        this._writeEmitter.fire(char);
+        if (char === '\r') {
             this._writeEmitter.fire("\n");
         }
     }
@@ -98,6 +154,21 @@ export class Terminal {
     public terminalRead(): string {
         if(this._kbhit) {
             return this._lastChar;
+        }
+        return '';
+    }
+
+    public terminalReadBuf(): string {
+        if (this.in > this.out) {
+            const char = this.buffer[this.out];
+            this.out++;
+            if (char === '\r') { // Enter
+                // trim buffer to eliminate previous line
+                this.buffer = this.buffer.slice(this.out);
+                this.in = this.in - this.out;
+                this.out = 0;
+            }
+            return char;
         }
         return '';
     }
@@ -120,6 +191,19 @@ export function terminalStart(name: string, useVIA: boolean = false) {
     }
 }
 
-export function terminalWrite(line: string): void {
-    terminal?.terminalWrite(line);
+export function terminalWrite(char: string): void {
+    terminal?.terminalWrite(char);
+}
+
+export function terminalRead(): string {
+    const char = terminal?.terminalReadBuf();
+    return char ? char : '';
+}
+
+export function terminalClear() {
+    terminal?.terminalClear();
+}
+
+export function getcWaiting(): boolean {
+    return waiting;
 }

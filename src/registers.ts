@@ -132,6 +132,42 @@ export class Registers {
         }
     }
 
+    public setSatusRegister(x: string) {
+        const mpu = this._mpu;
+        let p = 0;
+
+        if (x.includes('N') || x.includes('n')) {
+            p |= mpu.NEGATIVE;
+        }
+        if (x.includes('V') || x.includes('v')) {
+            p |= mpu.OVERFLOW;
+        }
+        if (x.includes('M') || x.includes('m')) {
+            p |= mpu.MS;
+        }
+        if (x.includes('X') || x.includes('x')) {
+            p |= mpu.IRS;
+        }
+        if (x.includes('D') || x.includes('d')) {
+            p |= mpu.DECIMAL;
+        }
+        if (x.includes('I') || x.includes('i')) {
+            p |= mpu.INTERRUPT;
+        }
+        if (x.includes('Z') || x.includes('z')) {
+            p |= mpu.ZERO;
+        }
+        if (x.includes('C') || x.includes('c')) {
+            p |= mpu.CARRY;
+        }
+
+        mpu.setP(p);
+        this._registers.P = mpu.p;
+        this._registers.A = mpu.a;
+        this._registers.X = mpu.x;
+        this._registers.Y = mpu.y;
+    }
+
     private _p: Flags65816 = { N: 0, V: 0, M: 0, X: 0, D: 0, I: 0, Z: 0, C: 0 };
     get p() {
         const mpu = this._mpu;
@@ -237,6 +273,52 @@ export class Registers {
             default:
                 return undefined;
         }
+    }
+
+    public status(): string {
+        let status = '';
+        const p = this.p;
+        if (p.N) {
+            status += 'N';
+        } else {
+            status += '-';
+        }
+        if (p.V) {
+            status += 'V';
+        } else {
+            status += '-';
+        }
+        if (p.M) {
+            status += 'M';
+        } else {
+            status += '-';
+        }
+        if (p.X) {
+            status += 'X';
+        } else {
+            status += '-';
+        }
+        if (p.D) {
+            status += 'D';
+        } else {
+            status += '-';
+        }
+        if (p.I) {
+            status += 'I';
+        } else {
+            status += '-';
+        }
+        if (p.Z) {
+            status += 'Z';
+        } else {
+            status += '-';
+        }
+        if (p.C) {
+            status += 'C';
+        } else {
+            status += '-';
+        }
+        return status;
     }
 
     private _address: number = 0;

@@ -1,7 +1,7 @@
 {
   "name": "db65xx",
   "displayName": "65xx Debugger",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "publisher": "TRobertson",
   "description": "VS Code debugger for 65xx assembly.",
   "author": {
@@ -165,7 +165,9 @@
                 {
                     "sbin": "${cwd}\\hello_world.bin",
                     "src":  "${cwd}",
-                    "list": "${cwd}"
+                    "list": "${cwd}",
+                    "input": "0xf004",
+                    "output": "0xf001"
                 }
             ],
             "stopOnEntry": true,

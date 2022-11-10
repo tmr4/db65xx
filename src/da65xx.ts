@@ -5,7 +5,7 @@
 
 import {
     Logger, logger,
-    LoggingDebugSession, Event, ContinuedEvent,
+    LoggingDebugSession, Event, ContinuedEvent, ExitedEvent,
     InitializedEvent, TerminatedEvent, StoppedEvent, BreakpointEvent, OutputEvent,
     InvalidatedEvent,
     Thread, StackFrame, Scope, Source, Handles, Breakpoint, MemoryEvent, ThreadEvent, Variable
@@ -22,6 +22,7 @@ import { Symbols } from './symbols';
 import { SourceMap } from './sourcemap';
 import { toHexString, hasMatchedBrackets, findClosingBracket } from './util';
 import { MPU65816 } from './mpu65816';
+import { terminalClear } from './terminal';
 
 interface IBreakpoint {
     id: number;
@@ -72,9 +73,11 @@ interface ILaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
         sbin: string,       // source binary
         src?: string,       // source code directory
         listing?: string,   // listing, map and symbol files directory
-        acia?: string,      // address of ACIA (in hex)
-        via?: string,       // address of VIA (in hex)
-        fbin?: string       // Forth binary to load at startup
+        acia?: string,      // address of ACIA
+        via?: string,       // address of VIA
+        fbin?: string,      // Forth binary to load at startup
+        input?: string,     // address of input
+        output?: string     // address of ouput
     }
 }
 
@@ -94,7 +97,7 @@ interface IStack {
 export class Debug65xxSession extends LoggingDebugSession {
 
     // the 65816 execution engine and the MPU's registers
-    private ee65xx: EE65xx;
+    private ee65xx!: EE65xx;
     private registers!: Registers;
     private sourceMap!: SourceMap;
     private symbols!: Symbols;
@@ -148,46 +151,8 @@ export class Debug65xxSession extends LoggingDebugSession {
         this.setDebuggerColumnsStartAt1(true);
 
         // create 65816 execution engine
-        this.ee65xx = new EE65xx(this);
-
-        // setup event handlers
-//        this.ee65xx.on('stopOnBreakpoint', () => {
-//            this.sendEvent(new StoppedEvent('breakpoint', Debug65xxSession.threadID));
-//        });
-//        this.ee65xx.on('stopOnDataBreakpoint', () => {
-//            this.sendEvent(new StoppedEvent('data breakpoint', Debug65xxSession.threadID));
-//        });
-//        this.ee65xx.on('breakpointValidated', (bp: IBreakpoint) => {
-//            this.sendEvent(new BreakpointEvent('changed', { verified: bp.verified, id: bp.id } as DebugProtocol.Breakpoint));
-//        });
-//        this.ee65xx.on('stopOnException', (exception) => {
-//            if (exception) {
-//                this.sendEvent(new StoppedEvent(`exception(${exception})`, Debug65xxSession.threadID));
-//            } else {
-//                this.sendEvent(new StoppedEvent('exception', Debug65xxSession.threadID));
-//            }
-//        });
-        this.ee65xx.on('stopOnEntry', () => {
-            this.sendEvent(new StoppedEvent('entry', Debug65xxSession.threadID));
-        });
-        this.ee65xx.on('stopOnPause', () => {
-            if (!this.ee65xx.mpu.waiting) {
-                this.sendEvent(new StoppedEvent('pause', Debug65xxSession.threadID));
-            }
-            else {
-                const se = new StoppedEvent('pause', Debug65xxSession.threadID);
-                (se as DebugProtocol.StoppedEvent).body.description = 'Paused, waiting for input';
-                this.sendEvent(se);
-            }
-        });
-        this.ee65xx.on('stopOnStep', () => {
-            this.sendEvent(new StoppedEvent('step', Debug65xxSession.threadID));
-        });
-        this.ee65xx.on('exited', () => {
-            this.sendEvent(new TerminatedEvent());
-        });
+        this.createExecutionEngine();
     }
-
 
     // *******************************************************************************************
     // protected DAP Request methods
@@ -208,28 +173,30 @@ export class Debug65xxSession extends LoggingDebugSession {
         response.body = response.body || {};
 
         response.body.supportsConfigurationDoneRequest = true;
-        response.body.supportsEvaluateForHovers = true;
+
+        // DAP and VS Code offer several options to terminate and restart a debugging session
+        // depending on the capabilities set during configuration.  Currently, termination only
+        // involves disposing of the integrated terminal and since the user may have modified
+        // read only memory and since I don't store launch args, it's easiest to take the simple
+        // approach and let VS Code handle the restart by setting the following four options to false.
+
+        // two step stop, terminateRequest called on stop button prior to disconnectRequest
+        // if supportsRestartRequest is false and this is true, restart button calls terminateRequest w/ restart=true, but no other args
+        response.body.supportsTerminateRequest = false;
+
+        response.body.supportSuspendDebuggee = false;        // suspendDebuggee property sent with disconnectRequest (I haven't seen this sent w/ disconnectRequest)
+        response.body.supportTerminateDebuggee = false;      // terminateDebuggee property sent with disconnectRequest (set true on restart button, assuming supportsRestartRequest is false)
+
+        // if true, restart button calls restartRequest w/ original launch args
+        // otherwise restart button performs a restart sequence, with calls to:
+        //  1. terminateRequest (if active) with the restart property set to true
+        //  2. disconnectRequest with the restart property set to true
+        //  3. launchRequest with original launch args
+        response.body.supportsRestartRequest = false;
+
         response.body.supportsDataBreakpoints = true;       // add data breakpoints via context menu on certain register variables
         response.body.supportsFunctionBreakpoints = true;   // add functional breakpoints in Breakpoints pane
-
-        response.body.supportsSetVariable = true;       // VS Code adds Set Value to Variables view context menu
-        response.body.supportsSetExpression = true;     // VS Code adds Set Value to Watchs view context menu (otherwise, if both of these are true it doesn't seem to do anything even if a Variable's evaluateName property is set)
-
-        response.body.supportsReadMemoryRequest = true;     // view binary data in hex editor w/ memoryReference
-        response.body.supportsWriteMemoryRequest = true;    // modify binary data in hex editor w/ memoryReference
-
-        response.body.supportsLoadedSourcesRequest = true;  // adds the Loaded Scripts Explorer to debug pane (shows a list of modules ease of opening in editor without leaving debug view)
-        response.body.supportSuspendDebuggee = true;        // via Pause Request
-        response.body.supportTerminateDebuggee = true;
-
-        // possible future capabilities
-        // Instruction breakpoints (a breakpoint at a memory location)
-        // are available through the disassembly view.  These breakpoints
-        // could be useful for Forth code (disassembly of that should be
-        // fairly formulaic).
-//        response.body.supportsDisassembleRequest = true;    // add "Open Disassembly View to call stack and editor context menus.  Active if instructionPointerReference is defined."
-//        response.body.supportsSteppingGranularity = true;   // seems to be set to instruction when in Disassembly View, unclear otherwise.  Can be used by step instructions to indicate you're in Disassembly View
-//        response.body.supportsInstructionBreakpoints = true;  // available in Disassembly View
+        response.body.supportsLogPoints = true;             // sends logMessage (if set) to setBreakPointsRequest, otherwise it isn't even if hitCondition is set (also sends hitCondition if set even if supportsHitConditionalBreakpoints is false)
 
         // Note that condition, hitCondition and logMessage can all be set at once.
         // VS Code doesn't process or act on any of these other than passing them on to the debug adapter.
@@ -238,12 +205,6 @@ export class Debug65xxSession extends LoggingDebugSession {
         // unlike the Breakpoint pane edit icon (and context menu item) which is only active when supportsConditionalBreakpoints is true).
         response.body.supportsConditionalBreakpoints = true;  // enables Edit Condition in Breakpoint view (but it's appears to be always enabled in editor breakpoint context menu)
         response.body.supportsHitConditionalBreakpoints = true;  // if true sends hitCondition (if set) to setBreakPointsRequest, otherwise it isn't even if hitCondition is set
-        response.body.supportsLogPoints = true;  // if true sends logMessage (if set) to setBreakPointsRequest, otherwise it isn't even if hitCondition is set (also sends hitCondition if set even if supportsHitConditionalBreakpoints is false)
-
-        // step back is possible if we save state after each step, but this could bog down the execution engine
-//        response.body.supportsStepBack = true;      // activates step back and reverse buttons (there are no corresponding Run menu items)
-
-//        response.body.supportsValueFormattingOptions = true;  // *** TODO: test this *** not sure this does anything in VS Code
 
         // Exceptions aren't natural for a working 65xx program but could be configured for certain unused opcodes
         // (less useful for the 65816 but could be configured for certain opcodes)
@@ -268,6 +229,29 @@ export class Debug65xxSession extends LoggingDebugSession {
             }
         ];
 
+        response.body.supportsSetVariable = true;       // VS Code adds Set Value to Variables view context menu
+        response.body.supportsSetExpression = true;     // VS Code adds Set Value to Watchs view context menu (otherwise, if both of these are true it doesn't seem to do anything even if a Variable's evaluateName property is set)
+
+        response.body.supportsReadMemoryRequest = true;     // view binary data in hex editor w/ memoryReference
+        response.body.supportsWriteMemoryRequest = true;    // modify binary data in hex editor w/ memoryReference
+
+        response.body.supportsLoadedSourcesRequest = true;  // adds the Loaded Scripts Explorer to debug pane (shows a list of modules ease of opening in editor without leaving debug view)
+        response.body.supportsEvaluateForHovers = true;
+
+        // possible future capabilities
+        // Instruction breakpoints (a breakpoint at a memory location)
+        // are available through the disassembly view.  These breakpoints
+        // could be useful for Forth code (disassembly of that should be
+        // fairly formulaic).
+        //response.body.supportsDisassembleRequest = true;    // add "Open Disassembly View to call stack and editor context menus.  Active if instructionPointerReference is defined."
+        //response.body.supportsSteppingGranularity = true;   // seems to be set to instruction when in Disassembly View, unclear otherwise.  Can be used by step instructions to indicate you're in Disassembly View
+        //response.body.supportsInstructionBreakpoints = true;  // available in Disassembly View
+
+        // step back is possible if we save state after each step, but this could bog down the execution engine
+        //response.body.supportsStepBack = true;      // activates step back and reverse buttons (there are no corresponding Run menu items)
+
+        //response.body.supportsValueFormattingOptions = true;  // *** TODO: test this *** not sure this does anything in VS Code
+
         //response.body.supportsExceptionInfoRequest = true;  // Retrieves the details of the exception that caused this event to be raised, not clear when this is used
 
         // see: https://microsoft.github.io/debug-adapter-protocol/specification#Types_ExceptionOptions for definition
@@ -275,7 +259,6 @@ export class Debug65xxSession extends LoggingDebugSession {
         // and: https://github.com/microsoft/vscode-mono-debug/blob/main/src/typescript/extension.ts#L90
         // for example usage
         //response.body.supportsExceptionOptions = true;
-
 
         // for full list see: https://microsoft.github.io/debug-adapter-protocol/specification#Types_Capabilities
         // supportsModulesRequest seems like it could be useful but VS Code doesn't support it
@@ -288,9 +271,9 @@ export class Debug65xxSession extends LoggingDebugSession {
         //response.body.supportsStepInTargetsRequest = true;
 
         // make VS Code support completion in REPL
-//        response.body.supportsCompletionsRequest = true; // in REPL (see mock-debug)
-//        response.body.completionTriggerCharacters = [".", "["];
-//        response.body.supportsBreakpointLocationsRequest = true;
+        //response.body.supportsCompletionsRequest = true; // in REPL (see mock-debug)
+        //response.body.completionTriggerCharacters = [".", "["];
+        //response.body.supportsBreakpointLocationsRequest = true;
 
         this.sendResponse(response);
 
@@ -309,14 +292,66 @@ export class Debug65xxSession extends LoggingDebugSession {
         this._configurationDone.notify();
     }
 
-    protected disconnectRequest(response: DebugProtocol.DisconnectResponse, args: DebugProtocol.DisconnectArguments, request?: DebugProtocol.Request): void {
-        //console.log(`disconnectRequest suspend: ${args.suspendDebuggee}, terminate: ${args.terminateDebuggee}`);
-        this.ee65xx.end();
+    // called before disconnectRequest on stop button if supportsTerminateRequest is true
+    // called on restart button if supportsRestartRequest is false (no launch arguments included)
+    protected terminateRequest(response: DebugProtocol.TerminateResponse, args: DebugProtocol.TerminateArguments, request?: DebugProtocol.Request): void {
+        if (args.restart) {
+            //
+        } else {
+            //
+        }
+        this.sendResponse(response);
     }
 
-//    protected async attachRequest(response: DebugProtocol.AttachResponse, args: IAttachRequestArguments) {
-//        return this.launchRequest(response, args);
-//    }
+    // called on stop button or on TerminatedEvent
+    // also called on restart if supportsRestartRequest is false, then kicks off launchRequest
+    protected disconnectRequest(response: DebugProtocol.DisconnectResponse, args: DebugProtocol.DisconnectArguments, request?: DebugProtocol.Request): void {
+        if (args.restart) {
+            // clean up da65xx and ee65xx in preparation for restart
+            // VS Code will call launchRequest again to restart
+            this.createExecutionEngine();
+
+            // registers, sourceMap and symbols are reset in launchRequest
+
+            this._variableHandles = new Handles<any>();
+            this.scopes.clear();
+            this.stacks.clear();
+            this.program = '';
+            this.cwd = '';
+            this.src = '';
+
+            this.breakpoints.clear();
+            this.dataBreakpoints.clear();
+            this.functionBreakpoints.clear();
+            this.hitConditionBreakpoints.clear();
+
+            this.breakpointId = 1;
+            this.inCall = false;
+            this.callFrames = [];
+
+            this._valuesInHex = true;
+
+            this.namedExceptions = undefined;
+            this.opcodeExceptions = undefined;
+
+            terminalClear();
+
+        } else {
+            //
+            this.ee65xx.terminate();
+        }
+
+        this.sendResponse(response);
+    }
+
+    // called on restart button if supportsRestartRequest is true (launch arguments included)
+    protected restartRequest(response: DebugProtocol.RestartResponse, args: DebugProtocol.RestartArguments, request?: DebugProtocol.Request): void {
+        this.sendResponse(response);
+    }
+
+    //protected async attachRequest(response: DebugProtocol.AttachResponse, args: IAttachRequestArguments) {
+    //    return this.launchRequest(response, args);
+    //}
 
     // Prepare source map, initialize 65816 execution engine and create variable pane view
     // this is the first request that includes information on the debugee and thus are able to load
@@ -330,6 +365,8 @@ export class Debug65xxSession extends LoggingDebugSession {
         let fbin = '';
         let acia: number | undefined;
         let via: number | undefined;
+        let input: number | undefined;
+        let output: number | undefined;
         let binBase = '';
         let list = '';
         let extension = '';
@@ -348,6 +385,8 @@ export class Debug65xxSession extends LoggingDebugSession {
             fbin = args0.fbin;
             acia = parseInt(args0.acia);
             via = parseInt(args0.via);
+            input = parseInt(args0.input);
+            output = parseInt(args0.output);
 
             const extension = path.extname(args0.sbin);
             binBase = path.basename(args0.sbin, extension);
@@ -371,7 +410,7 @@ export class Debug65xxSession extends LoggingDebugSession {
         }
 
         // start 65816 execution engine
-        this.ee65xx.start(sbin, fbin, acia, via, !!args.stopOnEntry, !args.noDebug);
+        this.ee65xx.start(sbin, fbin, acia, via, !!args.stopOnEntry, !args.noDebug, input, output);
         const mpu = this.ee65xx.mpu;
         const memory = this.ee65xx.obsMemory.memory;
 
@@ -556,7 +595,8 @@ export class Debug65xxSession extends LoggingDebugSession {
                 const value = reg[1];
                 variables.push({
                     name: name,
-                    value: name === 'P' ? (value as number).toString(2).padStart(8, '0') : this.formatNumber(value),
+                    //value: name === 'P' ? (value as number).toString(2).padStart(8, '0') : this.formatNumber(value),
+                    value: name === 'P' ? this.registers.status() : this.formatNumber(value),
                     type: 'register',
                     evaluateName: name,
                     variablesReference: name === 'P' ? this.scopes.get('flags')! : 0
@@ -679,9 +719,9 @@ export class Debug65xxSession extends LoggingDebugSession {
         const scope = this._variableHandles.get(ref);
         var name = args.name;
         const x = this.expEval(args.value);
+        let value: number | undefined = undefined;
 
         if (typeof x === 'number') {
-            let value: number | undefined = undefined;
 
             if (scope === 'registers') {
                 this.registers.setRegister(name, x);
@@ -710,16 +750,15 @@ export class Debug65xxSession extends LoggingDebugSession {
                 this.registers.setFlag(name, x);
 
                 // inform VS Code UI of needed updates
-                if ((name === 'M') || (name === 'X')) {
-                    // status register has changed, force UI to update registers and flags
-                    // *** TODO: consider limiting this update to only if a change occured ***
-                    if (this._useInvalidatedEvent) {
-                        // *** we lose the current line highlight in the editor if we invalidate
-                        // just the registers and flags scopes; this doesn't happen if we
-                        // invalidate the entire Variables area ***
-                        //this.sendEvent(new InvalidatedEvent(['registers', 'flags']));
-                        this.sendEvent(new InvalidatedEvent(['variables']));
-                    }
+                // status register has changed, force UI to update registers and flags
+                // w/o this the status register top level line will be incorrect at a minimum
+                // *** TODO: consider limiting this update to only if a change occured ***
+                if (this._useInvalidatedEvent) {
+                    // *** we lose the current line highlight in the editor if we invalidate
+                    // just the registers and flags scopes; this doesn't happen if we
+                    // invalidate the entire Variables area ***
+                    //this.sendEvent(new InvalidatedEvent(['registers', 'flags']));
+                    this.sendEvent(new InvalidatedEvent(['variables']));
                 }
 
                 // get actual updated flag value
@@ -788,6 +827,23 @@ export class Debug65xxSession extends LoggingDebugSession {
             } else {
                 response.success = false;
             }
+        } else if ((scope === 'registers') && (name === 'P')) {
+            // allow setting status register with characters
+            this.registers.setSatusRegister(args.value);
+
+            // inform VS Code UI of needed updates
+            // status register has changed, force UI to update registers and flags
+            // *** TODO: consider limiting this update to only if a change occured ***
+            if (this._useInvalidatedEvent) {
+                // *** we lose the current line highlight in the editor if we invalidate
+                // just the registers and flags scopes; this doesn't happen if we
+                // invalidate the entire Variables area ***
+                //this.sendEvent(new InvalidatedEvent(['registers', 'flags']));
+                this.sendEvent(new InvalidatedEvent(['variables']));
+            }
+
+            // get actual updated register value
+            value = this.registers.getRegister(name);
         } else {
             response.success = false;
         }
@@ -1466,7 +1522,38 @@ export class Debug65xxSession extends LoggingDebugSession {
 
 
     // *******************************************************************************************
-    // private DAP Request related methods
+    // private methods: startup factors and DAP Request related methods
+
+    private createExecutionEngine() {
+        this.ee65xx = new EE65xx(this);
+
+        // setup event handlers
+        this.ee65xx.on('stopOnEntry', () => {
+            this.sendEvent(new StoppedEvent('entry', Debug65xxSession.threadID));
+        });
+        this.ee65xx.on('stopOnPause', () => {
+            if (!this.ee65xx.mpu.waiting) {
+                this.sendEvent(new StoppedEvent('pause', Debug65xxSession.threadID));
+            }
+            else {
+                const se = new StoppedEvent('pause', Debug65xxSession.threadID);
+                (se as DebugProtocol.StoppedEvent).body.description = 'Paused, waiting for input';
+                this.sendEvent(se);
+            }
+        });
+        this.ee65xx.on('stopOnStep', () => {
+            this.sendEvent(new StoppedEvent('step', Debug65xxSession.threadID));
+        });
+        this.ee65xx.on('exitRequest', (code: number) => {
+            // inform UI we've exited (this doesn't seem to affect anything else)
+            this.sendEvent(new ExitedEvent(code));
+
+            // inform UI that debugging has terminated, this initiates a
+            // disconnectRequest which will terminate the execution engine
+            // (we don't do that here because the stop button also calls disconnectRequest)
+            this.sendEvent(new TerminatedEvent());
+        });
+    }
 
     private registerScopes(mpu: MPU65816, memory: Uint8Array, fbin: string) {
         this.scopes.set('registers', this._variableHandles.create('registers'));

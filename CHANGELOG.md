@@ -1,5 +1,14 @@
 # Change Log
 
+### 0.0.6
+
+- More intuitive status register display
+- Set status register with labels
+- Added terminal input buffer
+- Added input/output address launch arguments
+- Added input buffer to `hello world` example
+- Bug fix: properly stopped execution engine on terminate
+
 ### 0.0.5
 
 - Enhanced expression evaluation:

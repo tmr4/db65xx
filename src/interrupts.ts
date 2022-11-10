@@ -21,8 +21,8 @@ export class Interrupts {
         this.enabled = false;
     }
 
-    public end() {
-        this.ee65xx.end();
+    public exit(code: number) {
+        this.ee65xx.exit(code);
     }
 
     public addVIA(addr: number, obsMemory: ObsMemory) {

@@ -3,33 +3,55 @@ Main file   : C:\Users\tmrob\Documents\Projects\debug\hello_world\src\hello_worl
 Current file: C:\Users\tmrob\Documents\Projects\debug\hello_world\src\hello_world.s
 
 000000r 1               putc = $f001
+000000r 1               getc = $f004
 000000r 1               
 000000r 1               .bss
-000000r 1  00           cur_char: .byte 0
-000001r 1               
-000001r 1               .code
+000000r 1  xx xx xx xx  buffer: .res 256
+000004r 1  xx xx xx xx  
+000008r 1  xx xx xx xx  
+000100r 1               
+000100r 1               .code
 000000r 1               
 000000r 1               reset:
 000000r 1  A2 FF          ldx #$ff
 000002r 1  9A             txs
 000003r 1               
 000003r 1  A2 00          ldx #0
-000005r 1               print:
-000005r 1  BD rr rr       lda message,x
-000008r 1  8D rr rr       sta cur_char
-00000Br 1  F0 07          beq loop
-00000Dr 1  20 rr rr       jsr print_char
-000010r 1  E8             inx
-000011r 1  4C rr rr       jmp print
-000014r 1               
-000014r 1               loop:
-000014r 1  4C rr rr       jmp loop
+000005r 1  A0 00          ldy #0
+000007r 1               print:
+000007r 1  BD rr rr       lda message,x
+00000Ar 1  F0 06          beq @1
+00000Cr 1  20 rr rr       jsr print_char
+00000Fr 1  E8             inx
+000010r 1  80 F5          bra print
+000012r 1               
+000012r 1               @1:
+000012r 1  A9 0D          lda #$0d
+000014r 1  20 rr rr       jsr print_char
 000017r 1               
-000017r 1               print_char:
-000017r 1  8D 01 F0       sta putc
-00001Ar 1  60             rts
-00001Br 1               
-00001Br 1               .rodata
+000017r 1               loop:
+000017r 1  20 rr rr       jsr get_char
+00001Ar 1  F0 FB          beq loop
+00001Cr 1  C9 08          cmp #$08
+00001Er 1  D0 07          bne @2
+000020r 1  C0 00          cpy #0
+000022r 1  F0 F3          beq loop
+000024r 1  88             dey
+000025r 1  80 F0          bra loop
+000027r 1               @2:
+000027r 1  99 rr rr       sta buffer,y
+00002Ar 1  C8             iny
+00002Br 1  80 EA          bra loop
+00002Dr 1               
+00002Dr 1               print_char:
+00002Dr 1  8D 01 F0       sta putc
+000030r 1  60             rts
+000031r 1               
+000031r 1               get_char:
+000031r 1  AD 04 F0       lda getc
+000034r 1  60             rts
+000035r 1               
+000035r 1               .rodata
 000000r 1  48 65 6C 6C  message: .asciiz "Hello, world!"
 000004r 1  6F 2C 20 77  
 000008r 1  6F 72 6C 64  
