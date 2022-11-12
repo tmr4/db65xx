@@ -2,6 +2,7 @@
 
 ### 0.0.6a
 
+- Added link to 32-bit floating-point example project
 - Bug fix: fixed waiting for terminal input
 
 ### 0.0.6

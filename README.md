@@ -3,7 +3,7 @@ VS Code assembly language debugger for the 65C02 and 65816 microprocessors.
 
 ![Screenshot of db65xx debugger](https://trobertson.site/wp-content/uploads/2022/10/db65816.png)
 
-# Features
+## Features
 * Runs a program from reset vector, optionally stopping on entry
 * Supports multi-file programs
 * Can set launch arguments for program
@@ -26,7 +26,7 @@ VS Code assembly language debugger for the 65C02 and 65816 microprocessors.
 * Integrated terminal window for input/output with default read/write addresses at `$f004` and `$f001` respectively.
 * Source files listed in Loaded Scripts Explorer
 
-# Requirements
+## Requirements
 db65xx is a VS Code extension (under development) that simulates Western Design Center's [65C02](https://www.wdc65xx.com/wdc/documentation/w65c02s.pdf) *(to come late Nov 2022)* and [65C816](https://www.wdc65xx.com/wdc/documentation/w65c816s.pdf) microprocessors.  The extension implements Microsoft's Debug Adapter Protocol to communicate with the VS Code debugging frontend and translates UI commands to control an execution engine simulating the selected processor.  The execution engine "runs" a binary file of the assembled code and can be used independently of the debugging extension.
 
 The extension monitors the execution engine activity and translates its state into various elements to be displayed in the VS Code UI.  To do so, it uses various debug files produced during source code assembly.  The extension works with [cc65](https://github.com/cc65/cc65) files to produce an address map between the assembly source files and the assembled binary.  If not otherwise specified it assumes file extensions as follows:
@@ -39,7 +39,7 @@ The extension monitors the execution engine activity and translates its state in
 
 See the cc65 documentation on how to produce these files.  It shouldn't be difficult to modify the extension to create a mapping for other extensions or 65xx assemblers.
 
-# Debug Adapter and Execution Engine
+## Debug Adapter and Execution Engine
 Class DA65xx in the da65xx.ts module, implements Microsoft's [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) (DAP) to interface between the VS Code debugging UI and an execution engine.  The debug adapter performs all other aspects of debugging from maintaining the current program location in a source file to examining simulated memory, providing the UI with symbol and expression values.  The debug adapter also maintains information on all breakpoints and provides a method that the execution engine calls each step to check if a breakpoint has been hit.
 
 Class EE65xx, in the ee65xx.ts module, is a 65xx execution engine with limited debugging support.  It "executes" a 65xx binary instruction by instruction in "steps" and sends messages to the debug adapter informing it of certain events.  The debug adapter "follows along" with a source file, simulating "running" through the source code line-by-line.  It does this by preparing a mapping of the source code line to binary address using information from the debug files provided.
@@ -50,10 +50,10 @@ The core of the execution engine is a Typescript port of the core of my [py65816
 
 I plan to port the [65C02 core](https://github.com/tmr4/py65816/blob/main/py65816/devices/db_mpu65c02.py) my Python simulator package at some point.  These are based on Mike Naberezny's [py65](https://github.com/mnaberez/py65), a great 65C02 simulator.  Check out [ThirdPartyNotices](https://github.com/tmr4/db65xx/ThirdPartyNotices.txt) for its license and those of other's works that made this VS Code extension possible.
 
-# Installation
+## Installation
 The [db65xx VS Code extension](https://marketplace.visualstudio.com/items?itemName=TRobertson.db65xx) is available in the Visual Studio Marketplace and is the easiest way to add the extension to your system.  If you'd like to see how the extension works or modify it, clone this repository and open it in VS Code.  Open a terminal and type `install npm`.  You should be then be ready to run the hello world example.  To use the extension with your own files, add a default launch configuration with the `Run - Add Configuration...` menu item.
 
-# Hello World Example
+## Hello World Example
 I've included a very simple "hello world" example project in the [wp](https://github.com/tmr4/db65xx/tree/main/wp) folder of my repository.  To run it with the marketplace extension, copy the `wp` folder to your system, open it in VS Code, open `hello_world.s` and press `F5`.  The program should pause at the start of the reset subroutine.
 
 ![Screenshot of db65xx debugger](https://trobertson.site/wp-content/uploads/2022/10/hello_world.png)
@@ -62,7 +62,12 @@ The "hello world" example includes an 256-character circular input buffer showin
 
 To run the "hello world" example from a cloned repository, open the debug adapter extension project in VS Code and press `F5` to start debugging the extension.  VS Code will open a new window where you can run the hello world example.  Open hello_world.s, make sure "Debug File" is selected in the VS Code debug pane and press `F5`.
 
-# Use
+## Example Project
+A reader of my blog sent me a simple test program for the 32-bit floating-point package.  It just adds a value to the floating-point stack.  I modified it slightly for it to work with with my VS Code 65816 debugging extension.  You can read more about it and download source code that you can modify for your own use at my blog post [65816: Testing the 32-bit Floating Point Package with the VS Code db65xx Debugging Extension](https://trobertson.site/65816-testing-the-32-bit-floating-point-package-with-the-vs-code-db65xx-debugging-extension/).
+
+![Screenshot of db65xx debugger running with floating-point package](https://trobertson.site/wp-content/uploads/2022/11/fp32.png)
+
+## Use
 The db65xx extension implements many of VS Code's debugging capabilities.  See [Debugging](https://code.visualstudio.com/docs/editor/debugging) for an overview of using the VS Code debugging interface.  In some cases, db65xx behaves slightly differently than standard:
 * In addition to named function breakpoints, you can add an address as a function breakpoint.  This is especially useful to set a breakpoint at a location where a source file isn't available.  The address can be entered as either a decimal or hex value (enter hex with a `0x` prefix).
 * Data breakpoints can be set on the `X`, `Y`, `K`, `B` and `D` registers for write access only.  Data breakpoints for the other Variable pane items and for read access are not available.  Execution will break at an instruction that will write to one of the supported registers.  Note that unlike a normal data breakpoint, db65xx breaks at the instruction regardless if the value in the register will actually change.
@@ -75,7 +80,7 @@ Stacks can't be modified at the summary level with the `Set Value` menu item.  D
 * Check the context menu in each area of the debugger to see what options are available.  This is the only way to access many of VS Code's debugging functions.
 * Unless launched with arguments specifying the source files *(not discussed here)*, db65xx assumes the binary file to run is in the same directory and has the same name as the file being debugged, but with a `.bin` extension.  Maps are created to inform the UI of the line number in the source file corresponding to the current program counter and of symbol addresses.  The ld65 debug file (with the same name as the file being debugged, but with a `.dbg` extension and in the same directory) is use, if available, to produce these maps.  If the debug file or any of the source files it references are not available, the listing, symbol and mapping files produced by ca65 and ld65 are used.  If these aren't available, your binary will still run but the VS Code UI will not be able to follow along, show or set variables, or set or stop at breakpoints.
 
-# Status and Limitations
+## Status and Limitations
 1. This is a work in progress and will likely remain so.  I use it in debugging my 65816 Forth operating system.  I make no claims to its usability or suitability for your uses.  Coding is just a hobby for me, so take care.  Much of the code hasn't been rigorously tested, is without error checking and is likely inefficient.  Still, hopefully it will help others get past the limited documentation regarding VS Code's implementation of Microsoft's DAP.  Another good starting point for that is Microsoft's [Mock-Debug](https://github.com/Microsoft/vscode-mock-debug) which was the starting point for this project.
 2. The installation steps noted above are all that are needed for typical use.  There may be other setup steps needed to run from the repository.  In addition to installing [VS Code](https://code.visualstudio.com/) and recommended extensions, the only other thing I had to install to run the hello world example from a cloned repository on a fairly clean PC was [NodeJS](https://learn.microsoft.com/en-us/windows/dev-environment/javascript/nodejs-on-windows).
 3. The execution engine allocates a minimum of 4 banks of simulated memory for your code and data.  If you need more, reserve it in ca65 to increase the size of your binary, which will increase the size of the simulated memory.
