@@ -1,19 +1,19 @@
 import { VIA } from './via65c22';
 import { ACIA } from './acia65c51';
-import { MPU65816 } from './mpu65816';
+import { MPU65XX } from './mpu65xx';
 import { ObsMemory } from './obsmemory';
 import { EE65xx } from './ee65xx';
 
 export class Interrupts {
     ee65xx: EE65xx;
-    mpu: MPU65816;
+    mpu: MPU65XX;
     via: VIA | null;
     acia: ACIA | null;
     enabled: boolean;
 
 //    private terminal: Terminal;
 
-    public constructor(ee65xx: EE65xx, mpu: MPU65816) {
+    public constructor(ee65xx: EE65xx, mpu: MPU65XX) {
         this.ee65xx = ee65xx;
         this.mpu = mpu;
         this.via = null;
@@ -26,12 +26,10 @@ export class Interrupts {
     }
 
     public addVIA(addr: number, obsMemory: ObsMemory) {
-//        this.via = new VIA(addr, this.mpu, this, obsMemory, this.terminal);
         this.via = new VIA(addr, this.mpu, this, obsMemory);
     }
 
     public addACIA(addr: number, filename: string, obsMemory: ObsMemory) {
-//        this.acia = new ACIA(addr, filename, this.mpu, this, obsMemory, this.terminal);
         this.acia = new ACIA(addr, filename, this.mpu, this, obsMemory);
     }
 

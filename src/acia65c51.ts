@@ -1,8 +1,13 @@
 /* eslint-disable @typescript-eslint/naming-convention */
-import { MPU65816 } from './mpu65816';
+import {
+    BYTE_WIDTH, BYTE_FORMAT, WORD_WIDTH, WORD_FORMAT, ADDR_WIDTH, ADDR_FORMAT, ADDRL_WIDTH,
+    byteMask, addrMask, addrHighMask, addrMaskL, addrBankMask, spBase,
+    NEGATIVE, OVERFLOW, UNUSED, BREAK, DECIMAL, INTERRUPT, ZERO, CARRY, MS, IRS,
+    RESET, COP, BRK, ABORT, NMI, IRQ
+} from './constants';
+import { MPU65XX } from './mpu65xx';
 import { ObsMemory } from './obsmemory';
 import { Interrupts } from './interrupts';
-//import { debugSet, send } from './childp';
 import * as fs from 'fs';
 import { terminalWrite } from './terminal';
 
@@ -18,7 +23,7 @@ export class ACIA {
     PARITY = 1;
 
     name: string;
-    mpu: MPU65816;
+    mpu: MPU65XX;
     int: Interrupts;
     RDATAR: number;
     TDATAR: number;
@@ -35,12 +40,10 @@ export class ACIA {
     command_reg: number;
     enabled: boolean;
     oldenabled: boolean;
-//    static terminal: Terminal;
 
-//    public constructor(start_addr: number, filename: string, mpu: MPU65816, interrupt: Interrupts, obsMemory: ObsMemory, terminal: Terminal) {
-    public constructor(start_addr: number, filename: string, mpu: MPU65816, interrupt: Interrupts, obsMemory: ObsMemory) {
+    public constructor(start_addr: number, filename: string, mpu: MPU65XX, interrupt: Interrupts, obsMemory: ObsMemory) {
         this.name = 'ACIA';
-         this.mpu = mpu;
+        this.mpu = mpu;
         this.int = interrupt;
         this.RDATAR = start_addr;
         this.TDATAR = start_addr;
@@ -57,7 +60,6 @@ export class ACIA {
         this.command_reg = 0;
         this.enabled = false;
         this.oldenabled = false;
-//        ACIA.terminal = terminal;
 
         // init
         this.reset();
@@ -95,7 +97,7 @@ export class ACIA {
                     this.escape = true;
                 }
                 else {
-                    //            if (debugSet()) {
+                    //if (debugSet()) {
                     if (true) {
                         terminalWrite(String.fromCharCode(value));
                     }
@@ -142,7 +144,7 @@ export class ACIA {
     public dataT_thread() {
         const mpu =  this.mpu;
         if(this.bcount < 1024) {
-            if((mpu.IRQ_pin === true) && ((mpu.p & mpu.INTERRUPT) === 0)) {
+            if((mpu.IRQ_pin === true) && ((mpu.p & INTERRUPT) === 0)) {
                 mpu.IRQ_pin = false;
                 this.status_reg |= 0x88; // set Receiver Data Register Full flag (bit 3) status register
             }

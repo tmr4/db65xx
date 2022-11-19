@@ -10,10 +10,10 @@ export class ObsMemory {
     static writeCallbacks = new Map<string | symbol, (number) => void>();
     static readCallbacks = new Map<string | symbol, (number) => number>();
 
-    public constructor(bytes: Uint8Array) {
+    public constructor(bytes: Uint8Array, cpu: string) {
         //this.memory = new Uint8Array(bytes);
         // alocate a minimum of 4 banks of memory
-        const size = Math.max(0x40000, bytes.length);
+        const size = Math.max(cpu === '65816' ? 0x40000 : 0x10000, bytes.length);
 
         // need to copy bytes over, if we don't memory doesn't expand as we access it
         // as it does in Python (? is this true?)

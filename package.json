@@ -1,7 +1,7 @@
 {
   "name": "db65xx",
   "displayName": "65xx Debugger",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "publisher": "TRobertson",
   "description": "VS Code debugger for 65xx assembly.",
   "author": {
@@ -15,6 +15,13 @@
   "categories": [
     "Debuggers",
     "Programming Languages"
+  ],
+  "keywords": [
+      "debugger",
+      "65816",
+      "65C816",
+      "65C02",
+      "6502"
   ],
   "repository": {
     "type": "git",
@@ -159,10 +166,11 @@
           {
             "type": "65xx",
             "request": "launch",
-            "name": "Lauch with args",
+            "name": "Launch with args",
             "program": "${cwd}",
             "args": [
                 {
+                    "cpu":  "65816",
                     "sbin": "${cwd}\\hello_world.bin",
                     "src":  "${cwd}",
                     "list": "${cwd}",

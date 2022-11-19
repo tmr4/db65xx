@@ -1,5 +1,9 @@
 # Change Log
 
+### 0.0.7
+
+- Added support for the 65C02 and 6502 microprocessors
+
 ### 0.0.6a
 
 - Added link to 32-bit floating-point example project

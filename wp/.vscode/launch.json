@@ -1,7 +1,4 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
         {
@@ -15,10 +12,28 @@
         {
             "type": "65xx",
             "request": "launch",
-            "name": "Lauch with args",
+            "name": "Launch with args",
             "program": "${cwd}",
             "args": [
                 {
+                    "sbin": "${cwd}\\hello_world.bin",
+                    "src": "${cwd}",
+                    "list": "${cwd}",
+                    "input": "0xf004",
+                    "output": "0xf001"
+                }
+            ],
+            "stopOnEntry": true,
+            "cwd": "${cwd}"
+        },
+        {
+            "type": "65xx",
+            "request": "launch",
+            "name": "Launch with 65C02",
+            "program": "${cwd}",
+            "args": [
+                {
+                    "cpu": "65C02",
                     "sbin": "${cwd}\\hello_world.bin",
                     "src": "${cwd}",
                     "list": "${cwd}",

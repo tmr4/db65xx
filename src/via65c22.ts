@@ -1,6 +1,11 @@
 /* eslint-disable @typescript-eslint/naming-convention */
-
-import { MPU65816 } from './mpu65816';
+import {
+    BYTE_WIDTH, BYTE_FORMAT, WORD_WIDTH, WORD_FORMAT, ADDR_WIDTH, ADDR_FORMAT, ADDRL_WIDTH,
+    byteMask, addrMask, addrHighMask, addrMaskL, addrBankMask, spBase,
+    NEGATIVE, OVERFLOW, UNUSED, BREAK, DECIMAL, INTERRUPT, ZERO, CARRY, MS, IRS,
+    RESET, COP, BRK, ABORT, NMI, IRQ
+} from './constants';
+import { MPU65XX } from './mpu65xx';
 import { Interrupts } from './interrupts';
 import { ObsMemory } from './obsmemory';
 import { TextEncoder, TextDecoder } from 'node:util';
@@ -53,7 +58,7 @@ export function setLastChar(char: string) {
 export class VIA {
     static SR = 4;
     static SET_CLEAR = 128;
-    mpu: MPU65816;
+    mpu: MPU65XX;
     int: Interrupts;
     VIA_SR: number;
     VIA_IFR: number;
@@ -62,10 +67,8 @@ export class VIA {
     enabled: boolean;
     oldenabled: boolean;
     name: string;
-//    static terminal: Terminal;
 
-//    public constructor(start_addr: number, mpu: MPU65816, interrupt: Interrupts, obsMemory: ObsMemory, terminal: Terminal) {
-    public constructor(start_addr: number, mpu: MPU65816, interrupt: Interrupts, obsMemory: ObsMemory) {
+    public constructor(start_addr: number, mpu: MPU65XX, interrupt: Interrupts, obsMemory: ObsMemory) {
         this.mpu = mpu;
         this.int = interrupt;
 
@@ -76,7 +79,6 @@ export class VIA {
 
         this.enabled = false;
         this.oldenabled = false;
-//        VIA.terminal = terminal;
 
         this.name = 'VIA';
 
@@ -191,7 +193,7 @@ export class VIA {
 
     public SR_thread() {
         const mpu = this.mpu;
-        if((mpu.IRQ_pin === true) && ((mpu.p & mpu.INTERRUPT) === 0)) {
+        if((mpu.IRQ_pin === true) && ((mpu.p & INTERRUPT) === 0)) {
             if (kbhit) {
 //            if (false) {
                 mpu.memory[this.VIA_IFR] |= 0x04;

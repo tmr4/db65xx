@@ -57,7 +57,7 @@ export class Symbols {
             // symbol exists, get its value according to its type
             const address = sym.address;
             const size = sym.size;
-            if (address && size) {
+            if ((address !== undefined) && size) {
                 switch (size) {
                     case 1:
                         result = this.mem[address];

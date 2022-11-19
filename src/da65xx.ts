@@ -21,7 +21,7 @@ import { Registers } from './registers';
 import { Symbols } from './symbols';
 import { SourceMap } from './sourcemap';
 import { toHexString, hasMatchedBrackets, findClosingBracket } from './util';
-import { MPU65816 } from './mpu65816';
+import { MPU65XX } from './mpu65xx';
 import { terminalClear } from './terminal';
 
 interface IBreakpoint {
@@ -70,6 +70,7 @@ interface ILaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
     /** An absolute path to the working directory. */
     cwd?: string;
     args?: {
+        cpu?: string,       // '65816' default | '65802' | '65C02' | 6502
         sbin: string,       // source binary
         src?: string,       // source code directory
         listing?: string,   // listing, map and symbol files directory
@@ -370,6 +371,7 @@ export class Debug65xxSession extends LoggingDebugSession {
         let binBase = '';
         let list = '';
         let extension = '';
+        let cpu = '65816';
 
         this.program = args.program;
         if (args.cwd === undefined) {
@@ -401,6 +403,9 @@ export class Debug65xxSession extends LoggingDebugSession {
             } else {
                 list = this.cwd;
             }
+            if (args0.cpu) {
+                cpu = args0.cpu;
+            }
         } else {
             extension = path.extname(this.program);
             binBase = path.basename(this.program, extension);
@@ -409,8 +414,8 @@ export class Debug65xxSession extends LoggingDebugSession {
             list = this.cwd;
         }
 
-        // start 65816 execution engine
-        this.ee65xx.start(sbin, fbin, acia, via, !!args.stopOnEntry, !args.noDebug, input, output);
+        // start 65xx execution engine
+        this.ee65xx.start(cpu, sbin, fbin, acia, via, !!args.stopOnEntry, !args.noDebug, input, output);
         const mpu = this.ee65xx.mpu;
         const memory = this.ee65xx.obsMemory.memory;
 
@@ -1028,7 +1033,7 @@ export class Debug65xxSession extends LoggingDebugSession {
                     // do some special formating if we have a memory symbol
                     const address = symbol.address;
                     const size = symbol.size;
-                    if (address && size) {
+                    if ((address !== undefined) && size) {
                         if (args.context === 'hover') {
                             result = address.toString(16) + ': ' + symString;
                         } else if (args.context === 'watch') {
@@ -1555,7 +1560,8 @@ export class Debug65xxSession extends LoggingDebugSession {
         });
     }
 
-    private registerScopes(mpu: MPU65816, memory: Uint8Array, fbin: string) {
+    //private registerScopes(mpu: MPU65816, memory: Uint8Array, fbin: string) {
+    private registerScopes(mpu: MPU65XX, memory: Uint8Array, fbin: string) {
         this.scopes.set('registers', this._variableHandles.create('registers'));
         this.scopes.set('flags', this._variableHandles.create('flags'));
         //this.scopes.set('locals', this._variableHandles.create('locals'));

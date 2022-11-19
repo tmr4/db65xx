@@ -4,6 +4,9 @@ import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import { TextEncoder } from 'node:util';
 
+import { MPU65XX } from './mpu65xx';
+import { MPU6502 } from './mpu6502';
+import { MPU65C02 } from './mpu65c02';
 import { MPU65816 } from './mpu65816';
 import { ObsMemory } from './obsmemory';
 import { Interrupts } from './interrupts';
@@ -33,7 +36,7 @@ export class EE65xx extends EventEmitter {
     //aciaAddr!: number;
     //viaAddr!: number;
 
-    public mpu!: MPU65816;
+    public mpu!: MPU65XX; //MPU6502 | MPU65C02 | MPU65816;
 
     //private getcAddr: number;
     //private putcAddr: number;
@@ -52,14 +55,28 @@ export class EE65xx extends EventEmitter {
     // public program control methods
 
     // Start executing the given program
-    public start(bsource: string = '', fsource: string = '', aciaAddr: number | undefined, viaAddr: number | undefined, stopOnEntry: boolean = true, debug: boolean = true, input?: number, output?: number): void {
+    public start(cpu: string = '65816', bsource: string = '', fsource: string = '', aciaAddr: number | undefined, viaAddr: number | undefined, stopOnEntry: boolean = true, debug: boolean = true, input?: number, output?: number): void {
 
-        terminalStart('65816 Debug', viaAddr ? true : false); // start debug terminal if not already started
+        terminalStart('65xx Debug', viaAddr ? true : false); // start debug terminal if not already started
         this.isDebug = debug;
 
-        this.loadBinary(bsource);
+        this.loadBinary(bsource, cpu);
 
-        this.mpu = new MPU65816(this.obsMemory.obsMemory);
+        switch(cpu) {
+            case '6502':
+                this.mpu = new MPU6502(this.obsMemory.obsMemory);
+                break;
+            case '65C02':
+                this.mpu = new MPU65C02(this.obsMemory.obsMemory);
+                break;
+            case '65816':
+            default:
+                this.mpu = new MPU65816(this.obsMemory.obsMemory);
+                break;
+        }
+
+        this.mpu.reset();
+
         if (viaAddr) {
             //this.viaAddr = viaAddr;
             if (!this.dbInt) {
@@ -160,8 +177,8 @@ export class EE65xx extends EventEmitter {
     // private helper methods
 
     // load binary and initialize memory as observable
-    private loadBinary(file: string): void {
-        this.obsMemory = new ObsMemory(fs.readFileSync(file));
+    private loadBinary(file: string, cpu: string): void {
+        this.obsMemory = new ObsMemory(fs.readFileSync(file), cpu);
     }
 
     // run source code for a given number of steps
