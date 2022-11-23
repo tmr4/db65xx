@@ -64,14 +64,14 @@ export class EE65xx extends EventEmitter {
 
         switch(cpu) {
             case '6502':
-                this.mpu = new MPU6502(this.obsMemory.obsMemory);
+                this.mpu = new MPU6502(this, this.obsMemory.obsMemory);
                 break;
             case '65C02':
-                this.mpu = new MPU65C02(this.obsMemory.obsMemory);
+                this.mpu = new MPU65C02(this, this.obsMemory.obsMemory);
                 break;
             case '65816':
             default:
-                this.mpu = new MPU65816(this.obsMemory.obsMemory);
+                this.mpu = new MPU65816(this, this.obsMemory.obsMemory);
                 break;
         }
 
@@ -121,7 +121,7 @@ export class EE65xx extends EventEmitter {
 
     // stop run loop and dispose of integrated VS Code terminal
     public terminate() {
-        this.pause();
+        this.pause('stopOnTerminate');
         terminalDispose();
     }
 
@@ -159,11 +159,11 @@ export class EE65xx extends EventEmitter {
     }
 
     // stop current and future run loops
-    public pause() {
+    public pause(msg: string) {
         clearInterval(this.continueID);
         this.isBreak = true;     // force step loop to exit
-        this.sendEvent('stopOnPause');
-        this.isBreak = false;
+        this.sendEvent(msg);
+        //this.isBreak = false;
     }
 
     // continue execution of source code

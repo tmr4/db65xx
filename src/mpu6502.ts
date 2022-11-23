@@ -6,11 +6,12 @@ import {
     RESET, COP, BRK, ABORT, NMI, IRQ
 } from './constants';
 import { MPU65XX, instruction } from './mpu65xx';
+import { EE65xx } from './ee65xx';
 
 export class MPU6502 extends MPU65XX {
 
-    public constructor(memory: Uint8Array | null, pc = 0xfffc) {
-        super(pc);
+    public constructor(ee65xx: EE65xx, memory: Uint8Array | null, pc = 0xfffc) {
+        super(ee65xx, pc);
 
         // config
         this.name = '6502';

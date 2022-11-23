@@ -5,6 +5,7 @@ import {
     NEGATIVE, OVERFLOW, UNUSED, BREAK, DECIMAL, INTERRUPT, ZERO, CARRY, MS, IRS,
     RESET, COP, BRK, ABORT, NMI, IRQ
 } from './constants';
+import { EE65xx } from './ee65xx';
 
 interface IDisasm {
     inst: string;
@@ -52,6 +53,8 @@ export function instruction(cpu: string, inst: string, mode: string, cycles: num
 }
 
 export class MPU65XX {
+    private ee65xx!: EE65xx;
+
     // processor characteristics
     public name: string;
     protected index = 0;
@@ -79,7 +82,9 @@ export class MPU65XX {
     public pbr!: number;
     public dbr!: number;
 
-    public constructor(pc = 0xfffc) {
+    public constructor(ee65xx: EE65xx, pc = 0xfffc) {
+        this.ee65xx = ee65xx;
+
         // config
         this.name = '65XX';
 
@@ -264,7 +269,7 @@ export class MPU65XX {
     }
 
     // branch related helpers
-    protected bCLR(x) {
+    protected bCLR(x: number) {
         if (this.p & x) {
             this.incPC();
         } else {
@@ -272,7 +277,7 @@ export class MPU65XX {
         }
     }
 
-    protected bSET(x) {
+    protected bSET(x: number) {
         if (this.p & x) {
             this.ProgramCounterRelAddr();
         } else {
@@ -383,7 +388,9 @@ export class MPU65XX {
             addr = this.pc + offset;
         }
 
-        // *** TODO verify this extra cycle is applicable for all processors ***
+        // *** TODO verify this extra cycle is applicable for all processors
+        // and modes, especially 65C02 BBR and BBS.
+        // http://www.6502.org/tutorials/65c02opcodes.html says it applies to 65C02 BBR/BBS ***
         if ((this.pc & addrHighMask) !== (addr & addrHighMask)) {
             this.excycles += 1;
         }
@@ -396,6 +403,8 @@ export class MPU65XX {
 
     @instruction("65xx", "", "", 0)
     private inst_not_implemented() {
-        this.incPC();
+        //this.incPC();
+        this.pc -= 1;
+        this.ee65xx.pause('stopOnException');
     }
 }

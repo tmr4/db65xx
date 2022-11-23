@@ -100,7 +100,7 @@ export class Symbols {
             // symbol exists, set its value according to its type
             const address = sym.address;
             const size = sym.size;
-            if (address && size) {
+            if (address !== undefined && size) {
                 // a memory symbol
                 this.mem[address] = value & 0xff;
                 switch (size) {

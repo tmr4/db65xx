@@ -679,7 +679,7 @@ export class Debug65xxSession extends LoggingDebugSession {
 //        } else if (scope === 'buffer') {
 //            // *** TODO: consider adding something similar to stacks to get different view and hex editor
 //            // access.  Can a context memu command similar to toggle formating to add a memory range.  ***
-        } else if (ref > 0x10000000) {
+        } else if (ref >= 0x10000000) {
             var start = 0;
             var end = 0;
 
@@ -771,7 +771,7 @@ export class Debug65xxSession extends LoggingDebugSession {
             } else if (ref < 0x10000000) {
                 // can't change stack summary
                 // *** TODO: consider if this is worthwhile or how to remove "Set Value" menu item ***
-            } else if (ref > 0x10000000) {
+            } else if (ref >= 0x10000000) {
                 //const address = Math.trunc(ref / 16);
                 const address = parseInt(args.name, 16);
                 const ref = args.variablesReference & 0xfffffff;
@@ -858,7 +858,7 @@ export class Debug65xxSession extends LoggingDebugSession {
 
     // pause execution
     protected pauseRequest(response: DebugProtocol.PauseResponse): void {
-        this.ee65xx.pause();
+        this.ee65xx.pause('stopOnPause');
         this.sendResponse(response);
     }
 
@@ -1536,6 +1536,9 @@ export class Debug65xxSession extends LoggingDebugSession {
         this.ee65xx.on('stopOnEntry', () => {
             this.sendEvent(new StoppedEvent('entry', Debug65xxSession.threadID));
         });
+        this.ee65xx.on('stopOnException', () => {
+            this.sendEvent(new StoppedEvent('exception', Debug65xxSession.threadID));
+        });
         this.ee65xx.on('stopOnPause', () => {
             if (!this.ee65xx.mpu.waiting) {
                 this.sendEvent(new StoppedEvent('pause', Debug65xxSession.threadID));
@@ -1548,6 +1551,9 @@ export class Debug65xxSession extends LoggingDebugSession {
         });
         this.ee65xx.on('stopOnStep', () => {
             this.sendEvent(new StoppedEvent('step', Debug65xxSession.threadID));
+        });
+        this.ee65xx.on('stopOnTerminate', () => {
+            this.sendEvent(new StoppedEvent('pause', Debug65xxSession.threadID));
         });
         this.ee65xx.on('exitRequest', (code: number) => {
             // inform UI we've exited (this doesn't seem to affect anything else)

@@ -158,7 +158,7 @@ export class SourceMap {
             for (const sym of dbgMap.sym) {
                 // sym	id=0,name="print_char",addrsize=absolute,scope=0,def=9,ref=21,val=0x8014,seg=0,type=lab
                 const address = sym.val;
-                if (address) {
+                if (address !== undefined) {
                     this.symbols.set(sym.name.slice(1, -1), { address: parseInt(address, 16), size: sym.size ? sym.size : 1 });
                 }
             }

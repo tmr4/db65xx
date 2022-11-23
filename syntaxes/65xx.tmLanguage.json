@@ -22,6 +22,11 @@
                     "match": "(?i)[\\s]*\\b(bbr|bbs|bra|phx|phy|plx|ply|rmb|smb|stp|stz|trb|tsb|wai)\\b(\\s)"
                 },
                 {
+                    "name": "keyword.instruction.65c02.ext",
+                    "match": "(?i)[\\s]*\\b(bbr0|bbr1|bbr2|bbr3|bbr4|bbr5|bbr6|bbr7|bbs0|bbs1|bbs2|bbs3|bbs4|bbs5|bbs6|bbs7|rmb0|rmb1|rmb2|rmb3|rmb4|rmb5|rmb6|rmb7|smb0|smb1|smb2|smb3|smb4|smb5|smb6|smb7)\\b(\\s)"
+                },
+
+                {
                     "name": "keyword.instruction.65816",
                     "match": "(?i)[\\s]*\\b(bra|brl|cop|jml|jsl|mvn|mvp|pea|pei|per|phb|phd|phk|phx|phy|plb|pld||plx|ply|rep|rtl|sep|stp|stz|tcd|tcs|tdc|trb|tsb|tsc|txy|tyx|wai|wdm|xba|xce)\\b(\\s)"
                 },

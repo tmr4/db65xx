@@ -5,6 +5,7 @@ import {
     NEGATIVE, OVERFLOW, UNUSED, BREAK, DECIMAL, INTERRUPT, ZERO, CARRY, MS, IRS,
     RESET, COP, BRK, ABORT, NMI, IRQ
 } from './constants';
+import { EE65xx } from './ee65xx';
 import { MPU65XX, instruction } from './mpu65xx';
 
 // 65c816
@@ -18,8 +19,8 @@ import { MPU65XX, instruction } from './mpu65xx';
 //
 export class MPU65816 extends MPU65XX {
 
-    public constructor(memory: Uint8Array | null, pc = 0xfffc) {
-        super(pc);
+    public constructor(ee65xx: EE65xx, memory: Uint8Array | null, pc = 0xfffc) {
+        super(ee65xx, pc);
 
         // config
         this.name = '65C816';
