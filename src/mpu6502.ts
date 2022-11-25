@@ -125,11 +125,14 @@ export class MPU6502 extends MPU65XX {
             // the ALU outputs are not decimally adjusted
             nibble0 = nibble0 & 0xf;
             nibble1 = nibble1 & 0xf;
-            const aluresult = (nibble1 << 4) + nibble0;
 
             // the final A contents will be decimally adjusted
             nibble0 = (nibble0 + adjust0) & 0xf;
             nibble1 = (nibble1 + adjust1) & 0xf;
+
+            // Update result for use in setting flags below
+            const aluresult = (nibble1 << 4) + nibble0;
+
             this.p &= ~(CARRY | OVERFLOW | NEGATIVE | ZERO);
             if (aluresult === 0) {
                 this.p |= ZERO;
@@ -427,6 +430,9 @@ export class MPU6502 extends MPU65XX {
             nibble0 = (aluresult + adjust0) & 0xf;
             nibble1 = ((aluresult + adjust1) >> 4) & 0xf;
 
+            // Update result for use in setting flags below
+            aluresult = (nibble1 << 4) + nibble0;
+
             this.p &= ~(CARRY | ZERO | NEGATIVE | OVERFLOW);
             if (aluresult === 0) {
                 this.p |= ZERO;
@@ -439,7 +445,7 @@ export class MPU6502 extends MPU65XX {
             if (((this.a ^ data) & (this.a ^ aluresult)) & NEGATIVE) {
                 this.p |= OVERFLOW;
             }
-            this.a = (nibble1 << 4) + nibble0;
+            this.a = aluresult;
         } else {
             const result = this.a + (~data & byteMask) + (this.p & CARRY);
             this.p &= ~(CARRY | ZERO | OVERFLOW | NEGATIVE);

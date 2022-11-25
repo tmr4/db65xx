@@ -51,7 +51,7 @@ Class EE65xx, in the ee65xx.ts module, is a 65xx execution engine with limited d
 
 EE65xx exposes several methods allowing the debug adapter to control the simulation.  EE65xx supports typical stepping functionality as the core of its "debugging support", but relies exclusively on the debug adapter for other debugging activities, such as maintaining breakpoints and responding to variable requests.  To check if a breakpoint has been hit for example, the execution engine checks with the debug adapter each step.  EE65xx is completely independent from VS Code and the Debug Adapter and can be run as a standalone simulator without debugging.  It can also be run within VS Code without debugging.
 
-The execution engine cores are Typescript ports of the cores from my [py65816](https://github.com/tmr4/py65816) Python simulator package.  The Python versions have been tested with unit tests covering about 98% of the code (see the link for limitations).  Similar tests have not been made on the Typescript cores.  The `65816` core has successfully passed a significant set of higher-level functional tests.  The `65C02` core has successfully run my Forth-based operating system, but I haven't extensively tested it.  A `6502` core is also available but except that it forms a large part of the `65C02` has only be tested on a modified `hello world` program.  I don't plan on porting the Python unit tests as its code base is significantly larger than just the cores alone.  As always, use at your own risk.
+The execution engine cores are Typescript ports of the cores from my [py65816](https://github.com/tmr4/py65816) Python simulator package.  The Python versions have been tested with unit tests covering about 98% of the code (see the link for limitations).  Similar tests have not been made on the Typescript cores.  The `65816` core has successfully passed a significant set of higher-level functional tests.  The `65C02` core has successfully passed [functional tests](https://github.com/tmr4/6502_65C02_functional_tests/tree/master/db65xx) (see link for status and limitations).  It has also successfully run my Forth-based operating system, but I haven't extensively tested it.  A `6502` core is also available but except that it forms a large part of the `65C02` has only be tested on a modified `hello world` program.  I don't plan on porting the Python unit tests as its code base is significantly larger than just the cores alone.  As always, use at your own risk.
 
 These cores are based on Mike Naberezny's [py65](https://github.com/mnaberez/py65), a great 65C02 simulator.  Check out [ThirdPartyNotices](https://github.com/tmr4/db65xx/ThirdPartyNotices.txt) for its license and those of others whose work made this VS Code extension possible.
 
@@ -84,6 +84,10 @@ Example of interrupt driven I/O.  Uses the 65C22 shift register for keyboard inp
 Example of using the [32-bit floating point package](https://github.com/tmr4/fp32).
 
 ![Screenshot of db65xx debugger running with floating-point package](https://trobertson.site/wp-content/uploads/2022/11/db65xx_fp32.png)
+
+## Functional Tests
+
+I've created a [project](https://github.com/tmr4/6502_65C02_functional_tests/tree/master/db65xx) to run Klaus Dormann's 6502 functional tests from within the the db65xx extension.  These are based on Adam Barnes' cc65 port of Klaus' tests.  Follow the link to build and run the tests and for limitations.
 
 ## Use
 

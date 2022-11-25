@@ -1,5 +1,10 @@
 # Change Log
 
+## 0.0.9
+
+- Added functional tests
+- Bug fix: corrected 6502 decimal mode ADC/SBC
+
 ## 0.0.8
 
 - Added support for `BBR0-7` and `BBS0-7` instructions on the 65C02 microprocessor
