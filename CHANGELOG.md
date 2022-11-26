@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.0.10
+
+- Set breakpoints within and single step into multi-instruction macros
+
 ## 0.0.9
 
 - Added functional tests

@@ -68,7 +68,7 @@ export class SourceMap {
 
         // try creating source and symbol maps with the ld65 debug file
         if (fs.existsSync(file)) {
-            dbgFile = this.createMaps(file);
+            dbgFile = this.createMaps(file, 2);
         }
 
         // that didn't work, try creating the maps with the listing, symbol and map files
@@ -117,7 +117,10 @@ export class SourceMap {
 
     // create source and symbol maps from ld65 debug file
     // returns true if successful, false if any of the source files couldn't be found
-    private createMaps(dbgFile: string): boolean {
+    // macroStep;   0 - don't step into macro source (UI remains at macro invocation while stepping through multi instruction macros)
+    //              1 - step into macro source (even single instruction macro source; can be visually disruptive)
+    //              2 - step into source of multi instruction macros after first instruction (first instruction executed at macro invocation)
+    private createMaps(dbgFile: string, macroStep: number): boolean {
         const dbgMap = readDebugFile(dbgFile);
 
         const sourceFiles: ISegFile[] = [];
@@ -141,7 +144,7 @@ export class SourceMap {
 
             for ( const line of lineSpans) {
                 const sourceLine = sourceFile.file[line.line - 1];
-                if(line.span && !line.type) {
+                if (line.span && !line.type) {
                     const address = spanToAddress(dbgMap, line.span[0]);
                     const comIndex = sourceLine.indexOf(';');
                     const instruction = comIndex >= 0 ? sourceLine.substring(0, comIndex) : sourceLine;
@@ -160,6 +163,38 @@ export class SourceMap {
                 const address = sym.val;
                 if (address !== undefined) {
                     this.symbols.set(sym.name.slice(1, -1), { address: parseInt(address, 16), size: sym.size ? sym.size : 1 });
+                }
+            }
+        }
+
+        // overwrite address/line map with any macro references
+        // this will cause db65xx to show the macro source but
+        // we'll not be able to break on macro name anymore
+        for (const [index, sourceFile] of sourceFiles.entries()) {
+            // line	id=0,file=0,line=25,span=11
+            const lineSpans: DbgLine[] = dbgMap.line.filter((line) => {
+                return line.file === index && line.span ? line : undefined;
+            });
+
+            if (macroStep > 0) {
+                for (const line of lineSpans) {
+                    const sourceLine = sourceFile.file[line.line - 1];
+                    if (line.span && line.type && line.type === 2) {
+                        for (const span of line.span) {
+                            const address = spanToAddress(dbgMap, span);
+                            const comIndex = sourceLine.indexOf(';');
+                            const instruction = comIndex >= 0 ? sourceLine.substring(0, comIndex) : sourceLine;
+
+                            if ((macroStep === 1) || ((macroStep === 2) && (this.sourceMap.get(address) === undefined))) {
+                                this.sourceMap.set(address, {
+                                    address: address,
+                                    fileId: index,
+                                    instruction: instruction.trim(),
+                                    sourceLine: line.line,
+                                });
+                            }
+                        }
+                    }
                 }
             }
         }

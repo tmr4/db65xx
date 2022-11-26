@@ -29,7 +29,13 @@ export interface DbgLine {
     id: number,                 // reference #
     file: number,               // associated file reference #
     line: number,               // source file line #
-    type?: number,              // line type: 0|undefined = assember (ca65); 1 = external (cc65); 2 = macro; 3 = parameter macro
+    type?: number,              // line type: 0|undefined = assember (ca65)
+                                //            1 = external (cc65)
+                                //            2 = macro (span references macro source)
+                                //            3 = macro (span doesn't reference macro source but simply points to where it's invoked)
+                                //      it's unclear what causes a macro to be designated type 2 or 3 (hard to figure from source code)
+                                //      perhaps the macro is too complex to create a proper span reference, in any case we can't link
+                                //      to type 3 macro source
     count?: number,             // number of active macro expansions
     span?: number[],            // span(s) associated with line (macros can reference more than one span)
 }
