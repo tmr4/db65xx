@@ -452,10 +452,12 @@ export class Debug65xxSession extends LoggingDebugSession {
 
         // set and verify source breakpoints
         for (const [i, bp] of breakpoints.entries()) {
-            const { verified, line, id } = this.setBreakpoint(fileId, bp);
-            const dbp = new Breakpoint(verified, this.convertDebuggerLineToClient(line)) as DebugProtocol.Breakpoint;
-            dbp.id = id;
-            actualBreakpoints.push(dbp);
+            const sbp = this.setBreakpoint(fileId, bp);
+            for (let i = 0; i < sbp.length; i++) {
+                const dbp = new Breakpoint(sbp[i].verified, this.convertDebuggerLineToClient(sbp[i].line)) as DebugProtocol.Breakpoint;
+                dbp.id = sbp[i].id;
+                actualBreakpoints.push(dbp);
+            }
         }
 
         // send back the actual breakpoint positions
@@ -477,25 +479,63 @@ export class Debug65xxSession extends LoggingDebugSession {
         this.sendResponse(response);
     }
 
+    lastStackFrame: IRuntimeStackFrame = {
+        index: 0,
+        name: 'stopped on startup code',
+        file: 'startup',
+        line: 0,
+        column: 0,
+        instruction: 0,
+        nextaddress: 0
+    };
     protected stackTraceRequest(response: DebugProtocol.StackTraceResponse, args: DebugProtocol.StackTraceArguments): void {
-        // *** TODO: seems like we should be able to consolidate some of this ***
+        // *** TODO: consolidate this ***
         const frames: IRuntimeStackFrame[] = [];
         const pos = this.sourceMap.get(this.registers.address);
+        let stackFrame: IRuntimeStackFrame;
 
         if (pos !== undefined) {
-            const stackFrame: IRuntimeStackFrame = {
+            stackFrame = {
                 index: 0,
                 name: pos.instruction,
                 file: this.sourceMap.getSourceFile(pos.fileId),
-//                line: pos.line, // *** TODO: we should fix up line # when it's not in source map ***
                 line: pos.sourceLine,
                 column: 0,
                 instruction: pos.address,
                 nextaddress: 0
             };
+            this.lastStackFrame = stackFrame;
+        } else {
+            if (this.lastStackFrame.file === 'startup') {
+                const symbol = this.symbols.get("_main");
+                if (symbol && symbol.address) {
+                    this.ee65xx.stepTo(symbol.address, 'stopOnEntry');
+                    const pos = this.sourceMap.get(this.registers.address);
+                    if (pos !== undefined) {
+                        stackFrame = {
+                            index: 0,
+                            name: pos.instruction,
+                            file: this.sourceMap.getSourceFile(pos.fileId),
+                            line: pos.sourceLine,
+                            column: 0,
+                            instruction: pos.address,
+                            nextaddress: 0
+                        };
+                        this.lastStackFrame = stackFrame;
+                    } else {
+                        this.lastStackFrame.name = "no source available";
+                        this.lastStackFrame.instruction = this.ee65xx.mpu.address;
+                    }
+                }
+            } else {
+                this.lastStackFrame.name = "no source available";
+                this.lastStackFrame.instruction = this.ee65xx.mpu.address;
+            }
 
-            frames.push(stackFrame);
+            stackFrame = this.lastStackFrame;
         }
+
+        frames.push(stackFrame);
 
         if (this.inCall) {
             this.callFrames.forEach(frame => { frames.push(frame); });
@@ -981,6 +1021,7 @@ export class Debug65xxSession extends LoggingDebugSession {
         var ref = 0;
         var mref: string | undefined = undefined;
         var iv: number | undefined = undefined;
+        let expr = args.expression;
 
         switch (args.context) {
             case 'repl':
@@ -1020,12 +1061,18 @@ export class Debug65xxSession extends LoggingDebugSession {
 
                 // else fall through to evaluate expression
 
-            case 'watch':
             case 'hover':
-                const symbol = this.symbols.get(args.expression);
+                // cc65 C variables are represent internally prefixed with a '_'
+                if ((args.context === 'hover') && this.lastStackFrame.file.endsWith('.c')) {
+                    expr = '_' + expr;
+                }
+                // fall through to evaluate hover
+
+            case 'watch':
+                const symbol = this.symbols.get(expr);
 
                 if (symbol) {
-                    const symString = this.symbols.getString(args.expression);
+                    const symString = this.symbols.getString(expr);
                     if (symString) {
                         result = symString;
                     }
@@ -1702,9 +1749,10 @@ export class Debug65xxSession extends LoggingDebugSession {
     }
 
     // Set breakpoint in file at given line
-    private setBreakpoint(fileId: number | undefined, sbp: DebugProtocol.SourceBreakpoint): IBreakpoint {
+    private setBreakpoint(fileId: number | undefined, sbp: DebugProtocol.SourceBreakpoint): IBreakpoint[] {
         const line = this.convertClientLineToDebugger(sbp.line);
-        const bp: IBreakpoint = { verified: false, line, id: this.breakpointId++, address: 0, logMessage: sbp.logMessage };
+        const bp: IBreakpoint[] = [];
+        bp.push({ verified: false, line, id: this.breakpointId++, address: 0, logMessage: sbp.logMessage });
 
         if (fileId !== undefined) {
             let bps = this.breakpoints.get(fileId);
@@ -1714,32 +1762,79 @@ export class Debug65xxSession extends LoggingDebugSession {
             }
 
             // check if breakpoint is on a valid line
-            const bpAddress = this.sourceMap.getRev(fileId, bp.line);
+            const bpAddress = this.sourceMap.getRev(fileId, bp[0].line);
 
             // if so, set it as valid and update its address
             if (bpAddress) {
-                bp.verified = true;
-                bp.address = bpAddress;
+                if (typeof bpAddress === 'number') {
+                    bp[0].verified = true;
+                    bp[0].address = bpAddress;
 
-                if (sbp.condition) {
-                    bp.condition = sbp.condition;
-                }
-                if (sbp.hitCondition) {
-                    bp.hitCondition = sbp.hitCondition;
+                    if (sbp.hitCondition) {
+                        bp[0].hitCondition = sbp.hitCondition;
 
-                    const hcbp = this.hitConditionBreakpoints.get(bpAddress);
-                    if (!hcbp) {
-                        this.hitConditionBreakpoints.set(bpAddress, { address: bpAddress, hitCondition: sbp.hitCondition, hits: 0 });
-                    } else {
-                        // reset runtime breakpoint if hit condition changed
-                        if (hcbp.hitCondition !== sbp.hitCondition) {
-                            hcbp.hitCondition = sbp.hitCondition;
-                            hcbp.hits = 0;
+                        const hcbp = this.hitConditionBreakpoints.get(bpAddress);
+                        if (!hcbp) {
+                            this.hitConditionBreakpoints.set(bpAddress, { address: bpAddress, hitCondition: sbp.hitCondition, hits: 0 });
+                        } else {
+                            // reset runtime breakpoint if hit condition changed
+                            if (hcbp.hitCondition !== sbp.hitCondition) {
+                                hcbp.hitCondition = sbp.hitCondition;
+                                hcbp.hits = 0;
+                            }
                         }
+                    }
+                    if (sbp.condition) {
+                        bp[0].condition = sbp.condition;
+                    }
+                    bps.push(bp[0]);
+                } else {
+                    // *** TODO: consolidate with above ***
+                    bp[0].verified = true;
+                    bp[0].address = bpAddress[0];
+                    if (sbp.hitCondition) {
+                        bp[0].hitCondition = sbp.hitCondition;
+                        const addr = bpAddress[0];
+
+                        const hcbp = this.hitConditionBreakpoints.get(addr);
+                        if (!hcbp) {
+                            this.hitConditionBreakpoints.set(addr, { address: addr, hitCondition: sbp.hitCondition, hits: 0 });
+                        } else {
+                            // reset runtime breakpoint if hit condition changed
+                            if (hcbp.hitCondition !== sbp.hitCondition) {
+                                hcbp.hitCondition = sbp.hitCondition;
+                                hcbp.hits = 0;
+                            }
+                        }
+                    }
+                    if (sbp.condition) {
+                        bp[0].condition = sbp.condition;
+                    }
+                    bps.push(bp[0]);
+                    for (let i = 1; i < bpAddress.length; i++) {
+                        bp.push({ verified: true, line, id: this.breakpointId++, address: bpAddress[i], logMessage: sbp.logMessage });
+                        if (sbp.hitCondition) {
+                            bp[i].hitCondition = sbp.hitCondition;
+                            const addr = bpAddress[i];
+
+                            const hcbp = this.hitConditionBreakpoints.get(addr);
+                            if (!hcbp) {
+                                this.hitConditionBreakpoints.set(addr, { address: addr, hitCondition: sbp.hitCondition, hits: 0 });
+                            } else {
+                                // reset runtime breakpoint if hit condition changed
+                                if (hcbp.hitCondition !== sbp.hitCondition) {
+                                    hcbp.hitCondition = sbp.hitCondition;
+                                    hcbp.hits = 0;
+                                }
+                            }
+                        }
+                        if (sbp.condition) {
+                            bp[i].condition = sbp.condition;
+                        }
+                        bps.push(bp[i]);
                     }
                 }
             }
-            bps.push(bp);
         }
         return bp;
     }
@@ -1782,7 +1877,11 @@ export class Debug65xxSession extends LoggingDebugSession {
                     // if so, set it as valid and update its address
                     if (bpAddress) {
                         bp.verified = true;
-                        bp.address = bpAddress;
+                        if (typeof bpAddress === 'number') {
+                            bp.address = bpAddress;
+                        } else {
+
+                        }
                         this.sendEvent(new BreakpointEvent('changed', { verified: bp.verified, id: bp.id } as DebugProtocol.Breakpoint));
                     }
                 }

@@ -1,6 +1,6 @@
 # db65xx
 
-VS Code assembly language debugger for the 65C02 and 65816 microprocessors.
+VS Code assembly and C language debugger for the 65C02 and 65816 microprocessors.
 
 ![Screenshot of db65xx debugger](https://trobertson.site/wp-content/uploads/2022/10/db65816.png)
 
@@ -9,10 +9,10 @@ VS Code assembly language debugger for the 65C02 and 65816 microprocessors.
 * Runs a program from reset vector, optionally stopping on entry
 * Supports multi-file programs
 * Can set launch arguments for program
-* Follow along with execution directly in assembly source files
+* Follow along with execution directly in assembly and C source files
 * Control program execution with continue/pause, single step, step-into, step-over,  step-out and run-to-cursor
 * Five types of breakpoints:
-  * Source: set directly in assembly source files; stops execution when that line is reached
+  * Source: set directly in assembly and C source files; stops execution when that line is reached
   * Function: set on function name or memory address; stops execution when the first address in the function or memory address is reached during program execution
   * Data: set on `X`, `Y`, `K`, `B` and `D` register; stops execution when a write access to these registers is made
   * Instruction mnemonic or opcode (opcode allows a break even if there is no supporting source code)
@@ -32,7 +32,7 @@ VS Code assembly language debugger for the 65C02 and 65816 microprocessors.
 
 db65xx is a VS Code extension (under development) that simulates Western Design Center's [65C02](https://www.wdc65xx.com/wdc/documentation/w65c02s.pdf) and [65C816](https://www.wdc65xx.com/wdc/documentation/w65c816s.pdf) microprocessors.  The extension implements Microsoft's Debug Adapter Protocol to communicate with the VS Code debugging frontend and translates UI commands to control an execution engine simulating the selected processor.  The execution engine "runs" a binary file of the assembled code and can be used independently of the debugging extension.
 
-The extension monitors the execution engine activity and translates its state into various elements to be displayed in the VS Code UI.  To do so, it uses various debug files produced during source code assembly.  The extension works with [cc65](https://github.com/cc65/cc65) files to produce an address map between the assembly source files and the assembled binary.  If not otherwise specified it assumes file extensions as follows:
+The extension monitors the execution engine activity and translates its state into various elements to be displayed in the VS Code UI.  To do so, it uses various debug files produced during source code assembly and compilation.  The extension works with [cc65](https://github.com/cc65/cc65) files to produce an address map between the assembly and C source files and the assembled binary.  If not otherwise specified it assumes file extensions as follows:
 
 * binary: `.bin`
 * debug: `.dbg`
@@ -75,15 +75,27 @@ Check out my [db65xx Projects](https://github.com/tmr4/db65xx_projects) reposito
 
 ### Interrupt driven I/O
 
-Example of interrupt driven I/O.  Uses the 65C22 shift register for keyboard input and the 65C51 for terminal output and file input.
+Example of [interrupt driven I/O](https://github.com/tmr4/db65xx_projects/tree/main/int_io).  Uses the 65C22 shift register for keyboard input and the 65C51 for terminal output and file input.
 
 ![Screenshot of db65xx debugger](https://trobertson.site/wp-content/uploads/2022/11/db65xx_int_io.png)
 
 ### 32-bit Floating Point Package Test
 
-Example of using the [32-bit floating point package](https://github.com/tmr4/fp32).
+Example of using the [32-bit floating point package](https://github.com/tmr4/db65xx_projects/tree/main/fp32).
 
 ![Screenshot of db65xx debugger running with floating-point package](https://trobertson.site/wp-content/uploads/2022/11/db65xx_fp32.png)
+
+### Play chess with Toledo Atomchess 6502
+
+Playing chess with [Toledo Atomchess 6502](https://github.com/tmr4/db65xx_projects/tree/main/chess).
+
+![Screenshot of db65xx debugger running Toledo Atomchess 6502](https://trobertson.site/wp-content/uploads/2022/11/chess.png)
+
+### C-based Hello World
+
+Example of C-based debugging with [Hello World](https://github.com/tmr4/db65xx_projects/tree/main/hello_world_c).
+
+![Screenshot of db65xx debugger running with floating-point package](https://trobertson.site/wp-content/uploads/2022/12/hello_c.png)
 
 ## Functional Tests
 
@@ -135,6 +147,9 @@ Stacks can't be modified at the summary level with the `Set Value` menu item.  D
 13. All memory locations can be modified even if they are in a read-only segment.
 14. You can set breakpoints within multi-instruction macros (but not on a macro's first instruction, set a breakpoint at the macro invocation point for that).
 15. The UI steps into the source of multi-instruction macros after the macro's first instruction is executed at the point of it's invocation.  You cannot step over macros but when single stepping, the UI doesn't switch to the source of single instruction macros to avoid a visually disruptive experience.  If there is interest, I may make this user configurable to allow stepping into macros regardless of length, stepping out of a macro or stepping over macros entirely similar to the normal stepping behavior.
-16. The db65xx extension comes with basic 65xx assembly language syntax highlighting.  You can use it by selecting the `65xx language mode`. You might want to use another 65xx language extension for a more enhanced debugging experience.  Search for 6502 in VS Code's extensions marketplace.
-17. I haven't tried using C code with cc65.  It doesn't support the 65816.  I suppose it would be possible to link in 65C02 C-based object files to a 65816 project and I assume the ld65 debug file would map to the proper C source file.  I'd like to know the result if you try it out.
-18. more to come...
+16. Conditions can be set on breakpoints within a macro.  The conditions apply to each instance where the macro is used and not to the macro in general.  Thus a hit count of 5 on a macro breakpoint will break when a specific macro expansion has been hit 5 times.
+17. When debugging a C-based project, by defualt db65xx will execute any startup code and stop at the entry of the `main` function.  I may make this configurable in the future.
+18. Stepping through C-based code is currently rough.  Single stepping in C-based code will switch to the cc65 generated assembly source for the current line.  After completing execution of the assembly code for that line, the UI will switch back to the C-based code.  This allows you to see how cc65 has compiled you C code but it may not be the C-based debugging experience you're looking for.  I'll likely change this behavior to be configurable and consistent with the stepping context.  Thus stepping into, over or out of code could be C only, assembly only, or a mix of code as appropriate.  It will likely take me a while to get this experience right because my 65xx coding is all in assembly.  At this point your best bet for avoiding switching to assembly is to use the `Run to cursor` option instead of single stepping in C-based code.
+19. cc65 doesn't support using C code with the 65816.  It should be possible to link in 65C02 C-based object files to a 65816 project but I haven't tried it.  I'd like to know the result if you try it out.
+20. The db65xx extension comes with basic 65xx assembly language syntax highlighting.  You can use it by selecting the `65xx language mode`. You might want to use another 65xx language extension for a more enhanced debugging experience.  Search for 6502 in VS Code's extensions marketplace.
+21. more to come...

@@ -52,7 +52,7 @@ export class SourceMap {
 //    private symbolMap = new Map<string, ISymbol>(); // symbol/address pair
     public symbols: Symbols;
     private sourceMap = new Map<number, ISourceMap>(); // binary address/source mapping
-    private reverseMap = new Map<number, Map<number, number>>(); // source line #/binnary address mapping
+    private reverseMap = new Map<number, Map<number, number | number[]>>(); // source line #/binnary address mapping
 
     private sourceFiles: string[] = [];
 
@@ -68,7 +68,7 @@ export class SourceMap {
 
         // try creating source and symbol maps with the ld65 debug file
         if (fs.existsSync(file)) {
-            dbgFile = this.createMaps(file, 2);
+            dbgFile = this.createMaps(file, srcDir, 2);
         }
 
         // that didn't work, try creating the maps with the listing, symbol and map files
@@ -87,8 +87,8 @@ export class SourceMap {
 
     // Return address associate with the source/line pair
     // (returns undefined if not a valid instruction)
-    public getRev(sourceID: number, line: number): number | undefined {
-        let address: number | undefined;
+    public getRev(sourceID: number, line: number): number | number[] | undefined {
+        let address: number | number[] | undefined;
         const moduleMap = this.reverseMap.get(sourceID);
 
         if (moduleMap) {
@@ -115,54 +115,66 @@ export class SourceMap {
         return this.sourceFiles.findIndex(file => file.toLowerCase() === slc);
     }
 
-    // create source and symbol maps from ld65 debug file
+    // create source and symbol maps from ld65 debug file only using files in the srcDir directory
     // returns true if successful, false if any of the source files couldn't be found
     // macroStep;   0 - don't step into macro source (UI remains at macro invocation while stepping through multi instruction macros)
     //              1 - step into macro source (even single instruction macro source; can be visually disruptive)
     //              2 - step into source of multi instruction macros after first instruction (first instruction executed at macro invocation)
-    private createMaps(dbgFile: string, macroStep: number): boolean {
+    private createMaps(dbgFile: string, srcDir: string, macroStep: number): boolean {
         const dbgMap = readDebugFile(dbgFile);
+        const sd = this.normalizePathAndCasing(srcDir);
 
         const sourceFiles: ISegFile[] = [];
         for (const file of dbgMap.file) {
-            const fileName = file.name.slice(1, -1);
-            if (fs.existsSync(fileName)) {
-                const m = fs.readFileSync(fileName);
-                sourceFiles.push({ name: fileName, file: new TextDecoder().decode(m).split(/\r?\n/) });
-                this.sourceFiles.push(fileName);
+            const fileName = this.normalizePathAndCasing(file.name.slice(1, -1));
+
+            if (fileName.startsWith(sd)) {
+                if (fs.existsSync(fileName)) {
+                    const m = fs.readFileSync(fileName);
+                    sourceFiles.push({ name: fileName, file: new TextDecoder().decode(m).split(/\r?\n/) });
+                    this.sourceFiles.push(fileName);
+                } else {
+                    this.sourceFiles = [];
+                    return false;
+                }
             } else {
-                this.sourceFiles = [];
-                return false;
+                sourceFiles.push({ name: '', file: [] });
+                this.sourceFiles.push('');
+
             }
         }
 
         for (const [index, sourceFile] of sourceFiles.entries()) {
-            // line	id=0,file=0,line=25,span=11
-            const lineSpans: DbgLine[] = dbgMap.line.filter( (line) => {
-                return line.file === index && line.span ? line : undefined;
-            });
+            if (sourceFile.name.length > 0) {
+                // line	id=0,file=0,line=25,span=11
+                const lineSpans: DbgLine[] = dbgMap.line.filter((line) => {
+                    return line.file === index && line.span ? line : undefined;
+                });
 
-            for ( const line of lineSpans) {
-                const sourceLine = sourceFile.file[line.line - 1];
-                if (line.span && !line.type) {
-                    const address = spanToAddress(dbgMap, line.span[0]);
-                    const comIndex = sourceLine.indexOf(';');
-                    const instruction = comIndex >= 0 ? sourceLine.substring(0, comIndex) : sourceLine;
+                for (const line of lineSpans) {
+                    const sourceLine = sourceFile.file[line.line - 1];
+                    //if (line.span && !line.type) {
+                    // assumbler or C sources
+                    if (line.span && (!line.type || (line.type && line.type === 1))) {
+                        const address = spanToAddress(dbgMap, line.span[0]);
+                        const comIndex = sourceLine.indexOf(';');
+                        const instruction = comIndex >= 0 ? sourceLine.substring(0, comIndex) : sourceLine;
 
-                    this.sourceMap.set(address, {
-                        address: address,
-                        fileId: index,
-                        instruction: instruction.trim(),
-                        sourceLine: line.line,
-                    });
+                        this.sourceMap.set(address, {
+                            address: address,
+                            fileId: index,
+                            instruction: instruction.trim(),
+                            sourceLine: line.line,
+                        });
+                    }
                 }
-            }
 
-            for (const sym of dbgMap.sym) {
-                // sym	id=0,name="print_char",addrsize=absolute,scope=0,def=9,ref=21,val=0x8014,seg=0,type=lab
-                const address = sym.val;
-                if (address !== undefined) {
-                    this.symbols.set(sym.name.slice(1, -1), { address: parseInt(address, 16), size: sym.size ? sym.size : 1 });
+                for (const sym of dbgMap.sym) {
+                    // sym	id=0,name="print_char",addrsize=absolute,scope=0,def=9,ref=21,val=0x8014,seg=0,type=lab
+                    const address = sym.val;
+                    if (address !== undefined) {
+                        this.symbols.set(sym.name.slice(1, -1), { address: parseInt(address, 16), size: sym.size ? sym.size : 1 });
+                    }
                 }
             }
         }
@@ -171,27 +183,29 @@ export class SourceMap {
         // this will cause db65xx to show the macro source but
         // we'll not be able to break on macro name anymore
         for (const [index, sourceFile] of sourceFiles.entries()) {
-            // line	id=0,file=0,line=25,span=11
-            const lineSpans: DbgLine[] = dbgMap.line.filter((line) => {
-                return line.file === index && line.span ? line : undefined;
-            });
+            if (sourceFile.name.length > 0) {
+                // line	id=0,file=0,line=25,span=11
+                const lineSpans: DbgLine[] = dbgMap.line.filter((line) => {
+                    return line.file === index && line.span ? line : undefined;
+                });
 
-            if (macroStep > 0) {
-                for (const line of lineSpans) {
-                    const sourceLine = sourceFile.file[line.line - 1];
-                    if (line.span && line.type && line.type === 2) {
-                        for (const span of line.span) {
-                            const address = spanToAddress(dbgMap, span);
-                            const comIndex = sourceLine.indexOf(';');
-                            const instruction = comIndex >= 0 ? sourceLine.substring(0, comIndex) : sourceLine;
+                if (macroStep > 0) {
+                    for (const line of lineSpans) {
+                        const sourceLine = sourceFile.file[line.line - 1];
+                        if (line.span && line.type && line.type === 2) {
+                            for (const span of line.span) {
+                                const address = spanToAddress(dbgMap, span);
+                                const comIndex = sourceLine.indexOf(';');
+                                const instruction = comIndex >= 0 ? sourceLine.substring(0, comIndex) : sourceLine;
 
-                            if ((macroStep === 1) || ((macroStep === 2) && (this.sourceMap.get(address) === undefined))) {
-                                this.sourceMap.set(address, {
-                                    address: address,
-                                    fileId: index,
-                                    instruction: instruction.trim(),
-                                    sourceLine: line.line,
-                                });
+                                if ((macroStep === 1) || ((macroStep === 2) && (this.sourceMap.get(address) === undefined))) {
+                                    this.sourceMap.set(address, {
+                                        address: address,
+                                        fileId: index,
+                                        instruction: instruction.trim(),
+                                        sourceLine: line.line,
+                                    });
+                                }
                             }
                         }
                     }
@@ -210,7 +224,18 @@ export class SourceMap {
                 rm = new Map<number, number>;
                 this.reverseMap.set(sm.fileId, rm);
             }
-            rm.set(sm.sourceLine, address);
+            const addr = rm.get(sm.sourceLine);
+            if (typeof addr === 'number') {
+                const addrA: number[] = [];
+                addrA.push(addr);
+                addrA.push(address);
+                rm.set(sm.sourceLine, addrA);
+            } else if (typeof addr === 'object') {
+                addr.push(address);
+                rm.set(sm.sourceLine, addr);
+            } else {
+                rm.set(sm.sourceLine, address);
+            }
         });
     }
 
@@ -518,6 +543,14 @@ export class SourceMap {
             return { segFile: seg_file, segBase: seg_base };
         }
 
+    }
+
+    private normalizePathAndCasing(path: string) {
+        if (process.platform === 'win32') {
+            return path.replace(/\//g, '\\').toLowerCase();
+        } else {
+            return path.replace(/\\/g, '/');
+        }
     }
 }
 

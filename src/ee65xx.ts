@@ -126,7 +126,7 @@ export class EE65xx extends EventEmitter {
     }
 
     // Continue execution to address or until we hit a breakpoint
-    public stepTo(address: number) {
+    public stepTo(address: number, event: string = 'stopOnStep') {
 
         // take a single step to get over a breakpoint
         this.step(false);
@@ -137,7 +137,7 @@ export class EE65xx extends EventEmitter {
             }
             this.step(false);
         }
-        this.sendEvent('stopOnStep');
+        this.sendEvent(event);
     }
 
     // Execute the current line.

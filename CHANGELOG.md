@@ -1,5 +1,12 @@
 # Change Log
 
+## 0.0.11
+
+- Added support for debugging cc65 C source files
+- Added C-based hello world example project
+- Added chess program example project
+- Bug fix: problem breaking on macros used more than once
+
 ## 0.0.10
 
 - Set breakpoints within and single step into multi-instruction macros

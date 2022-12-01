@@ -1,7 +1,7 @@
 {
   "name": "db65xx",
   "displayName": "65xx Debugger",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "publisher": "TRobertson",
   "description": "VS Code debugger for 65xx assembly.",
   "author": {
