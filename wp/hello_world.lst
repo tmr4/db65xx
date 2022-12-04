@@ -1,9 +1,9 @@
 ca65 V2.19
-Main file   : C:\Users\tmrob\Documents\Projects\debug\hello_world\src\hello_world.s
-Current file: C:\Users\tmrob\Documents\Projects\debug\hello_world\src\hello_world.s
+Main file   : C:\Users\tmrob\Documents\Projects\GitHub\testing\local\db65xx_projects\hello_world\src\hello_world.s
+Current file: C:\Users\tmrob\Documents\Projects\GitHub\testing\local\db65xx_projects\hello_world\src\hello_world.s
 
-000000r 1               putc = $f001
-000000r 1               getc = $f004
+000000r 1               putc := $f001
+000000r 1               getc := $f004
 000000r 1               
 000000r 1               .bss
 000000r 1  xx xx xx xx  buffer: .res 256

@@ -19,3 +19,5 @@ al 00E000 .message
 al 008007 .print
 al 008000 .reset
 al 000200 .buffer
+al 00F004 .getc
+al 00F001 .putc

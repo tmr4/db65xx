@@ -118,6 +118,6 @@ sym	id=5,name="message",addrsize=absolute,size=14,scope=0,def=22,ref=30,val=0xE0
 sym	id=6,name="print",addrsize=absolute,scope=0,def=43,ref=13,val=0x8007,seg=0,type=lab
 sym	id=7,name="reset",addrsize=absolute,scope=0,def=11,ref=50,val=0x8000,seg=0,type=lab
 sym	id=8,name="buffer",addrsize=absolute,size=256,scope=0,def=14,ref=27,val=0x200,seg=2,type=lab
-sym	id=9,name="getc",addrsize=absolute,scope=0,def=12,ref=3,val=0xF004,type=equ
-sym	id=10,name="putc",addrsize=absolute,scope=0,def=10,ref=7,val=0xF001,type=equ
+sym	id=9,name="getc",addrsize=absolute,scope=0,def=12,ref=3,val=0xF004,type=lab
+sym	id=10,name="putc",addrsize=absolute,scope=0,def=10,ref=7,val=0xF001,type=lab
 type	id=0,val="800121"

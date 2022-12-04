@@ -1,5 +1,5 @@
-putc = $f001
-getc = $f004
+putc := $f001
+getc := $f004
 
 .bss
 buffer: .res 256
