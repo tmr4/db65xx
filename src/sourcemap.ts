@@ -115,33 +115,35 @@ export class SourceMap {
         return this.sourceFiles.findIndex(file => file.toLowerCase() === slc);
     }
 
-    // create source and symbol maps from ld65 debug file only using files in the srcDir directory
-    // returns true if successful, false if any of the source files couldn't be found
+    // create source and symbol maps from ld65 debug file
+    // returns true if successful, false if none of source files could be found
     // macroStep;   0 - don't step into macro source (UI remains at macro invocation while stepping through multi instruction macros)
     //              1 - step into macro source (even single instruction macro source; can be visually disruptive)
     //              2 - step into source of multi instruction macros after first instruction (first instruction executed at macro invocation)
     private createMaps(dbgFile: string, srcDir: string, macroStep: number): boolean {
         const dbgMap = readDebugFile(dbgFile);
-        const sd = this.normalizePathAndCasing(srcDir);
-
         const sourceFiles: ISegFile[] = [];
+        let fileCount = 0;
+
+        // make a list of source files that exist
         for (const file of dbgMap.file) {
             const fileName = this.normalizePathAndCasing(file.name.slice(1, -1));
 
-            if (fileName.startsWith(sd)) {
-                if (fs.existsSync(fileName)) {
-                    const m = fs.readFileSync(fileName);
-                    sourceFiles.push({ name: fileName, file: new TextDecoder().decode(m).split(/\r?\n/) });
-                    this.sourceFiles.push(fileName);
-                } else {
-                    this.sourceFiles = [];
-                    return false;
-                }
+            if (fs.existsSync(fileName)) {
+                const m = fs.readFileSync(fileName);
+                sourceFiles.push({ name: fileName, file: new TextDecoder().decode(m).split(/\r?\n/) });
+                this.sourceFiles.push(fileName);
+                fileCount++;
             } else {
                 sourceFiles.push({ name: '', file: [] });
                 this.sourceFiles.push('');
-
             }
+        }
+
+        // fail if we couldn't locate any sources listed in the debug file
+        if (fileCount === 0) {
+            this.sourceFiles = [];
+            return false;
         }
 
         for (const [index, sourceFile] of sourceFiles.entries()) {
@@ -166,14 +168,6 @@ export class SourceMap {
                             instruction: instruction.trim(),
                             sourceLine: line.line,
                         });
-                    }
-                }
-
-                for (const sym of dbgMap.sym) {
-                    // sym	id=0,name="print_char",addrsize=absolute,scope=0,def=9,ref=21,val=0x8014,seg=0,type=lab
-                    const address = sym.val;
-                    if (address !== undefined) {
-                        this.symbols.set(sym.name.slice(1, -1), { address: parseInt(address, 16), size: sym.size ? sym.size : 1 });
                     }
                 }
             }
@@ -213,6 +207,13 @@ export class SourceMap {
             }
         }
 
+        for (const sym of dbgMap.sym) {
+            // sym	id=0,name="print_char",addrsize=absolute,scope=0,def=9,ref=21,val=0x8014,seg=0,type=lab
+            const address = sym.val;
+            if (address !== undefined) {
+                this.symbols.set(sym.name.slice(1, -1), { address: parseInt(address, 16), size: sym.size ? sym.size : 1 });
+            }
+        }
         return true;
     }
 

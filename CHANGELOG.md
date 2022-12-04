@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.0.12
+
+- Bug fix: problem finding source files on startup
+
 ## 0.0.11
 
 - Added support for debugging cc65 C source files
