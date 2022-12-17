@@ -1,5 +1,11 @@
 # Change Log
 
+## 0.0.13
+
+- Added proper debug stepping in C source files
+- Added C-based Sieve of Eratosthenes example project
+- Bug fix: multi-address breakpoints sometimes not set properly
+
 ## 0.0.12
 
 - Bug fix: problem finding source files on startup

@@ -24,7 +24,7 @@ VS Code assembly and C language debugger for the 65C02 and 65816 microprocessors
 * Drill down on variables/watches that represent a memory range (variable ranges can be opened in a separate hex editor window allowing modification of the memory range)
 * Evaluate symbols, memory ranges and expressions and set symbol and memory range values in the Debug Console
 * Symbol address and value displayed when hovering over a symbol in source code
-* Call stack displayed when stepping through program.  Clicking on an entry opens the source code in an editor at that line.  On continue, call stack collapses to current instruction.
+* Call stack displayed when stepping through program.  Clicking on an entry opens the source code in an editor at that line.
 * Integrated terminal window for input/output with default read/write addresses at `$f004` and `$f001` respectively.
 * Source files listed in Loaded Scripts Explorer
 
@@ -36,10 +36,11 @@ The extension monitors the execution engine activity and translates its state in
 
 * binary: `.bin`
 * debug: `.dbg`
-* listing:  `.lst`
-* map:      `.map`
-* symbol:   `.sym`
-* source: `same as debugged file, as referenced in debug file or '.s' otherwise`
+* listing: `.lst`
+* map: `.map`
+* symbol: `.sym`
+* C source: `.c`
+* assembly source: `same as debugged file, as referenced in debug file or '.s' otherwise`
 
 See the cc65 documentation on how to produce these files.  It shouldn't be difficult to modify the extension to create a mapping for other extensions or 65xx assemblers.
 
@@ -95,7 +96,13 @@ Playing chess with [Toledo Atomchess 6502](https://github.com/tmr4/db65xx_projec
 
 Example of C-based debugging with [Hello World](https://github.com/tmr4/db65xx_projects/tree/main/hello_world_c).
 
-![Screenshot of db65xx debugger running with floating-point package](https://trobertson.site/wp-content/uploads/2022/12/hello_c.png)
+![Screenshot of db65xx debugger running with hello_c package](https://trobertson.site/wp-content/uploads/2022/12/hello_c.png)
+
+### C-based Sieve of Eratosthenes
+
+Example of C-based debugging with [Sieve of Eratosthenes](https://github.com/tmr4/db65xx_projects/tree/main/sieve_c).
+
+![Screenshot of db65xx debugger running with sieve_c package](https://trobertson.site/wp-content/uploads/2022/12/sieve.png)
 
 ## Functional Tests
 
@@ -134,7 +141,7 @@ Stacks can't be modified at the summary level with the `Set Value` menu item.  D
 
 1. This is a work in progress and will likely remain so.  I use it in debugging my 65816 Forth operating system.  I make no claims to its usability or suitability for your uses.  Coding is just a hobby for me, so take care.  Much of the code hasn't been rigorously tested, is without error checking and is likely inefficient.  Still, hopefully it will help others get past the limited documentation regarding VS Code's implementation of Microsoft's DAP.  Another good starting point for that is Microsoft's [Mock-Debug](https://github.com/Microsoft/vscode-mock-debug) which was the starting point for this project.
 2. The installation steps noted above are all that are needed for typical use.  There may be other setup steps needed to run from the repository.  In addition to installing [VS Code](https://code.visualstudio.com/) and recommended extensions, the only other thing I had to install to run the hello world example from a cloned repository on a fairly clean PC was [NodeJS](https://learn.microsoft.com/en-us/windows/dev-environment/javascript/nodejs-on-windows).
-3. db65xx defaults to using the `65816` core unless otherwise specified.  To use the `65C02` core, launch db65xx with the `cpu` argument set to `65C02`.
+3. db65xx defaults to using the `65816` core unless otherwise specified.  To use the `65C02` core, launch db65xx with the `cpu` argument set to `65C02`.  Similarly, launch db65xx with the `cpu` argument set to `6502` to use the `6502` core.
 4. Execution of invalid opcodes on the 65C02 and 6502 throw an exception.  Your program will not run correctly in db65xx if it depends on invalid opcodes.  If you would like the ability to use invalid opcodes, consider submitting a pull request.
 5. The execution engine allocates a minimum of 4 banks (1 bank for the `65C02`) of simulated memory for your code and data.  If you need more, reserve it in ca65 to increase the size of your binary, which will increase the size of the simulated memory.
 6. When setting the value of a symbol or register or entering an expression, values can be expressed in decimal or another base with the appropriate prefix (`0x` for hex, `0o` for octal, `0b` for binary, etc.).  Symbol and register values and expression results displayed by the UI are in hex without any prefix.  When setting a value, the UI will present this unprefixed hex value.  You must add a `0x` hex prefix if you want to input a hex value, even to reenter the original value.
@@ -149,7 +156,9 @@ Stacks can't be modified at the summary level with the `Set Value` menu item.  D
 15. The UI steps into the source of multi-instruction macros after the macro's first instruction is executed at the point of it's invocation.  You cannot step over macros but when single stepping, the UI doesn't switch to the source of single instruction macros to avoid a visually disruptive experience.  If there is interest, I may make this user configurable to allow stepping into macros regardless of length, stepping out of a macro or stepping over macros entirely similar to the normal stepping behavior.
 16. Conditions can be set on breakpoints within a macro.  The conditions apply to each instance where the macro is used and not to the macro in general.  Thus a hit count of 5 on a macro breakpoint will break when a specific macro expansion has been hit 5 times.
 17. When debugging a C-based project, by defualt db65xx will execute any startup code and stop at the entry of the `main` function.  I may make this configurable in the future.
-18. Stepping through C-based code is currently rough.  Single stepping in C-based code will switch to the cc65 generated assembly source for the current line.  After completing execution of the assembly code for that line, the UI will switch back to the C-based code.  This allows you to see how cc65 has compiled you C code but it may not be the C-based debugging experience you're looking for.  I'll likely change this behavior to be configurable and consistent with the stepping context.  Thus stepping into, over or out of code could be C only, assembly only, or a mix of code as appropriate.  It will likely take me a while to get this experience right because my 65xx coding is all in assembly.  At this point your best bet for avoiding switching to assembly is to use the `Run to cursor` option instead of single stepping in C-based code.
-19. cc65 doesn't support using C code with the 65816.  It should be possible to link in 65C02 C-based object files to a 65816 project but I haven't tried it.  I'd like to know the result if you try it out.
-20. The db65xx extension comes with basic 65xx assembly language syntax highlighting.  You can use it by selecting the `65xx language mode`. You might want to use another 65xx language extension for a more enhanced debugging experience.  Search for 6502 in VS Code's extensions marketplace.
-21. more to come...
+18. Local variables in C-based code are not easily inspected.  See my [blog post](https://trobertson.site/6502-debugging-the-sieve-of-eratosthenes-with-the-vs-code-db65xx-debugging-extension/) for ideas on viewing local variables in C-based projects.  I hope to correct this in the next update.
+19. When debugging assembly only projects, usually only the current instruction is displayed on the call stack.  If you step into a subroutine with available source code an additional frame will be added to the call stack.  At this point, step out is available to return to the calling routine.  On continue, the call stack collapses to current instruction.  The call stack for C only projects is more complete, however, the assembly portion of the call stack may truncated when debugging multi-language projects (assembly and C).  This behavior is mainly to avoid producing an incorrect call stack when program flow is manually modified by adjusting the processor hardware stack.
+20. cc65 doesn't support using C code with the 65816.  It may be possible to link in 65C02 C-based object files to a 65816 project but I haven't tried it.  I'd like to know the result if you try it out.  Since the execution engine can only be configured to use one core at a time, the 65C02 code (both user, autogenerated and library) can't use the 65C02 etended opcodes.
+21. The db65xx extension comes with basic 65xx assembly language syntax highlighting.  You can use it by selecting the `65xx` language mode. You might want to use another language extension for a more enhanced debugging experience.  Search for 6502 in VS Code's extensions marketplace.
+22. Depending on how your system is configured, assembly and C source code files might open in the `Plain text` language mode.  You may not be able to set breakpoints in this mode.  Change the language mode if you are having trouble setting breakpoints within a source file by selecting an appropriate mode, for example `65xx` for assembly files or `C` for C files (you may need to install an appropriate C extension if you haven't done so already).
+23. more to come...

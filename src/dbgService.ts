@@ -93,12 +93,13 @@ export interface DbgSym {
 
 export interface DbgCSym {
     // csym	id=0,name="pal_bg",scope=1,type=5,sc=ext,sym=487
-    id: number,
-    name: string,
-    scope: number,
+    id: number,                 // reference #
+    name: string,               // name
+    scope: number,              // associated scope reference #
     type: number,
-    sc: 'ext',
-    sym: number,
+    sc: 'ext' | 'auto',         // external or register(?) variable
+    sym?: number,               // associated assembler symbol reference #
+    offs?: number               // offset from ?
 }
 
 export interface DbgType {

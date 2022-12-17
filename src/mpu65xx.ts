@@ -405,6 +405,6 @@ export class MPU65XX {
     private inst_not_implemented() {
         //this.incPC();
         this.pc -= 1;
-        this.ee65xx.pause('stopOnException');
+        this.ee65xx.stopOnException();
     }
 }

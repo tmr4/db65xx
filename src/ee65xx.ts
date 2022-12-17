@@ -1,8 +1,5 @@
-/* eslint-disable eqeqeq */
-
-import { EventEmitter } from 'events';
+//import { EventEmitter } from 'events';
 import * as fs from 'fs';
-import { TextEncoder } from 'node:util';
 
 import { MPU65XX } from './mpu65xx';
 import { MPU6502 } from './mpu6502';
@@ -17,18 +14,20 @@ import { Debug65xxSession } from './da65xx';
 // 65xx Execution Engine
 
 // EE65xx is a 65xx execution engine with debugging support.
-// it "executes" a 65xx binary and sends events to the debug adapter informing it
-// of key debugging events.  The debug adapter "follows along" with a CA65 listing
-// file (*.lst), simulating "running" through the source code line-by-line.  EE65xx
+// it "executes" a 65xx binary and informs the debug adapter
+// of key debugging via callbacks.  The debug adapter "follows along" with a CA65
+// source files, simulating "running" through the code line-by-line.  EE65xx
 // exposes several methods allowing the debug adapter to control the simulation.
 // EE65xx supports typical stepping and breakpoint functionality as the core of the
 // "debugging support".
-// EE65xx is completely independent from VS Code and the
-// Debug Adapter and can be run as a standalone simulator without debugging.
-export class EE65xx extends EventEmitter {
+// When not debugging, EE65xx is completely independent from VS Code and the
+// Debug Adapter and can be run as a standalone simulator without debugging (feature to come).
+//export class EE65xx extends EventEmitter {
+export class EE65xx {
 
     private continueID!: NodeJS.Timeout;
     private isBreak: boolean = false;
+    private runCallback: (() => boolean) | undefined = undefined;
     private isDebug!: boolean;
     private da65xx: Debug65xxSession;
 
@@ -43,7 +42,7 @@ export class EE65xx extends EventEmitter {
     public obsMemory!: ObsMemory;
 
     public constructor(da65xx: Debug65xxSession) {
-        super();
+        //super();
 
         //this.getcAddr = getcAddr;
         //this.putcAddr = putcAddr;
@@ -106,9 +105,6 @@ export class EE65xx extends EventEmitter {
             if (!stopOnEntry) {
                 this.continue();
             }
-            else {
-                this.sendEvent('stopOnEntry');
-            }
         } else {
             this.continue();
         }
@@ -116,54 +112,78 @@ export class EE65xx extends EventEmitter {
 
     // inform da65xx of user or other exit request
     public exit(code: number) {
-        this.sendEvent('exitRequest', code);
+        this.da65xx.exit(code);
     }
 
-    // stop run loop and dispose of integrated VS Code terminal
-    public terminate() {
-        this.pause('stopOnTerminate');
-        terminalDispose();
+    // stop run loop and dispose of integrated VS Code terminal if requested
+    public terminate(killTerminal: boolean) {
+        clearInterval(this.continueID);
+        this.isBreak = true;     // force step loop to exit
+        if (killTerminal) {
+            terminalDispose();
+        }
     }
 
     // Continue execution to address or until we hit a breakpoint
-    public stepTo(address: number, event: string = 'stopOnStep') {
+    // Returns address where stopped.
+    // *** This method is synchronous and should only be used when it's
+    // certain we can get to the address.  Otherwise the UI will freeze
+    // in the while loop. ***
+    // This method is mainly used when additional work is needed after
+    // we've reached the desired address.  Otherwise, consider using
+    // continueUntil with the stepToAddr callback.
+    // *** TODO: this is used by the debug adapter to step over assembly
+    // subroutine calls in basicCallStack mode and C library startup code.
+    // The UI could freeze up and/or the call stack could be corrupted if
+    // the mpu hardward stack is manipulated to adjust normal program flow
+    // in these instances.  Consider modifying those methods using stepTo to
+    // use a continueUntil with a stepToAddr callback.  That's more work than
+    // it's worth at this point though. ***
+    public stepTo(address: number): number {
+        const mpu = this.mpu;
 
-        // take a single step to get over a breakpoint
-        this.step(false);
+        if (address !== mpu.address) {
+            // take a single step to get over a breakpoint
+            this.step();
 
-        while (address !== (this.mpu.pc + (this.mpu.pbr << 16))) {
-            if (this.da65xx?.checkBP()) {
-                return;
+            while (address !== mpu.address) {
+                if (this.da65xx?.checkBP(mpu.address)) {
+                    return mpu.address;
+                }
+                this.step();
             }
-            this.step(false);
         }
-        this.sendEvent(event);
+
+        // we're  there
+        return address;
     }
 
-    // Execute the current line.
-    // Returns true if execution sent out a stopped event and needs to stop.
-    public step(stopOnStep: boolean): boolean {
-        //let mpu = this.mpu;
+    // Execute the current line
+    // Returns true if a breakpoint was hit, otherwise false
+    public step(): boolean {
+        const mpu = this.mpu;
 
         if (this.dbInt && this.dbInt.enabled) {
             this.dbInt.trip();
         }
-        this.mpu.step();
 
-        if (stopOnStep) {
-            this.sendEvent('stopOnStep');
-        }
+        // manage call stack
+        // *** TODO: consider flag to skip this if not debugging ***
+        this.da65xx.manageCallStackExit(mpu.address);
 
-        // continue
-        return false;
+        mpu.step();
+
+        // manage call stack
+        // *** TODO: consider flag to skip this if not debugging ***
+        this.da65xx.manageCallStackEntry(mpu.address);
+
+        return this.isBreak ? true : false;
     }
 
     // stop current and future run loops
-    public pause(msg: string) {
+    public pause() {
         clearInterval(this.continueID);
         this.isBreak = true;     // force step loop to exit
-        this.sendEvent(msg);
-        //this.isBreak = false;
     }
 
     // continue execution of source code
@@ -172,6 +192,18 @@ export class EE65xx extends EventEmitter {
         this.continueID = setInterval(() => { this.run(); }, 10);
     }
 
+    // continue execution of source code
+    public continueUntil(callback: () => boolean) {
+        this.runCallback = callback;
+        this.continue();
+    }
+
+    // stop current and future run loops and inform da65xx that
+    // we've stopped on an exception
+    public stopOnException() {
+        this.pause();
+        this.da65xx.stoppedOnException();
+    }
 
     // *******************************************************************************************
     // private helper methods
@@ -183,9 +215,12 @@ export class EE65xx extends EventEmitter {
 
     // run source code for a given number of steps
     private run() {
+        const mpu = this.mpu;
         // are we waiting for input?
-        let waiting = this.mpu.waiting || getcWaiting();
+        let waiting = mpu.waiting || getcWaiting();
         let count = 0;
+        let lastAddr = mpu.address;
+        let metCallback = false;
 
         // Take 100000 steps every interval except when we're waiting for input.
         // Reduce steps when we're waiting for input to avoid CPU churn.
@@ -196,10 +231,20 @@ export class EE65xx extends EventEmitter {
         let steps = waiting ? 20 : 100000;
 
         // take a single step to get over a breakpoint
-        this.step(false);
+        this.step();
 
-        while (count++ < steps && !this.isBreak) {
-            if (this.isDebug && this.da65xx?.checkBP()) {
+        if (this.runCallback) {
+            metCallback = this.runCallback.call(this.da65xx);
+
+            if (metCallback) {
+                clearInterval(this.continueID);
+                this.runCallback = undefined;
+                return;
+            }
+        }
+
+        while (count++ < steps && !this.isBreak && !metCallback) {
+            if (this.isDebug && this.da65xx!.checkBP(mpu.address)) {
                 clearInterval(this.continueID);
                 this.isBreak = true;     // force step loop to exit
                 break;
@@ -209,16 +254,31 @@ export class EE65xx extends EventEmitter {
                 // *** TODO: evaluate and tune these if necessary ***
                 steps = 1000; // 20 causes long startup
             }
-            this.step(false);
-            waiting = this.mpu.waiting || getcWaiting();
+            this.step();
+
+            if (this.runCallback) {
+                metCallback = this.runCallback.call(this.da65xx);
+
+                if (metCallback) {
+                    clearInterval(this.continueID);
+                    this.runCallback = undefined;
+                }
+            }
+
+            // are we waiting?
+            // we're waiting if mpu is at WAI instruction, we've called getc but
+            // a character isn't available or the current mpu address is equal to
+            // the last address
+            waiting = mpu.waiting || getcWaiting() || (mpu.address === lastAddr);
+            lastAddr = mpu.address;
         }
         count = 0;
         this.isBreak = false;
     }
 
-    private sendEvent(event: string, ...args: any[]): void {
-        setTimeout(() => {
-            this.emit(event, ...args);
-        }, 0);
-    }
+    //private sendEvent(event: string, ...args: any[]): void {
+    //    setTimeout(() => {
+    //        this.emit(event, ...args);
+    //    }, 0);
+    //}
 }

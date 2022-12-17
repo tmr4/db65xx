@@ -5,8 +5,8 @@ import * as fs from 'fs';
 import { TextDecoder } from 'node:util';
 import * as path from 'path';
 
-import { readDebugFile, DbgMap, DbgSpan, DbgLine } from './dbgService';
-import { Symbols } from './symbols';
+import { readDebugFile, DbgMap, DbgScope, DbgSpan, DbgLine } from './dbgService';
+import { Symbols, ISymbol } from './symbols';
 import { Registers } from './registers';
 
 interface IModule {
@@ -42,17 +42,20 @@ interface IGetSeg {
 }
 
 export interface ISourceMap {
-    address: number;
-    fileId: number;
-    instruction: string;
-    sourceLine: number;
+    address: number;        // address associated with sourceLine
+    fileId: number;         // file reference #
+    instruction: string;    // text of instruction on line stripped of comments
+    sourceLine: number;     // line number
 }
 
 export class SourceMap {
 //    private symbolMap = new Map<string, ISymbol>(); // symbol/address pair
-    public symbols: Symbols;
     private sourceMap = new Map<number, ISourceMap>(); // binary address/source mapping
     private reverseMap = new Map<number, Map<number, number | number[]>>(); // source line #/binnary address mapping
+    public symbols: Symbols;
+    public cSymbols = new Map<string, ISymbol>(); // symbol/address pair;
+    public procedures = new Map<string, ISymbol>(); // assembly procedure/address pair;
+    public functions = new Map<string, ISymbol>(); // C function/address pair;
 
     private sourceFiles: string[] = [];
 
@@ -158,16 +161,18 @@ export class SourceMap {
                     //if (line.span && !line.type) {
                     // assumbler or C sources
                     if (line.span && (!line.type || (line.type && line.type === 1))) {
-                        const address = spanToAddress(dbgMap, line.span[0]);
-                        const comIndex = sourceLine.indexOf(';');
-                        const instruction = comIndex >= 0 ? sourceLine.substring(0, comIndex) : sourceLine;
+                        for (const span of line.span) {
+                            const address = spanToAddress(dbgMap, span);
+                            const comIndex = sourceLine.indexOf(';'); // *** TODO: this can cut off part of a C line (for-loop for example) ***
+                            const instruction = comIndex >= 0 ? sourceLine.substring(0, comIndex) : sourceLine;
 
-                        this.sourceMap.set(address, {
-                            address: address,
-                            fileId: index,
-                            instruction: instruction.trim(),
-                            sourceLine: line.line,
-                        });
+                            this.sourceMap.set(address, {
+                                address: address,
+                                fileId: index,
+                                instruction: instruction.trim(),
+                                sourceLine: line.line,
+                            });
+                        }
                     }
                 }
             }
@@ -192,6 +197,7 @@ export class SourceMap {
                                 const comIndex = sourceLine.indexOf(';');
                                 const instruction = comIndex >= 0 ? sourceLine.substring(0, comIndex) : sourceLine;
 
+                                // map this address according to macro stepping options
                                 if ((macroStep === 1) || ((macroStep === 2) && (this.sourceMap.get(address) === undefined))) {
                                     this.sourceMap.set(address, {
                                         address: address,
@@ -207,14 +213,62 @@ export class SourceMap {
             }
         }
 
+        // assembly code symbol map
         for (const sym of dbgMap.sym) {
-            // sym	id=0,name="print_char",addrsize=absolute,scope=0,def=9,ref=21,val=0x8014,seg=0,type=lab
+            // scope id=3,name="print_char",mod=0,type=scope,size=4,parent=0,sym=2,span=27
+            // sym id=2,name="print_char",addrsize=absolute,size=4,scope=0,def=40,ref=19+51,val=0x802D,seg=0,type=lab
             const address = sym.val;
             if (address !== undefined) {
-                this.symbols.set(sym.name.slice(1, -1), { address: parseInt(address, 16), size: sym.size ? sym.size : 1 });
+                const name = sym.name.slice(1, -1);
+                const addr = parseInt(address, 16);
+                const size = sym.size ? sym.size : 1;
+
+                // *** TODO: decide whether to add to both procedures and symbols ***
+                if (this.isScope(sym.name, dbgMap.scope)) {
+                    this.procedures.set(name, { address: addr, size: size });
+                } else {
+                    this.symbols.set(name, { address: addr, size: size });
+                }
+            }
+        }
+
+        // C code symbol map
+        for (const csym of dbgMap.csym) {
+            // csym	id=2,name="sieve",scope=1,type=0,sc=ext,sym=42
+            // scope id=1,name="_sieve",mod=0,type=scope,size=405,parent=0,sym=42,span=193+192
+            // sym id=42,name="_sieve",addrsize=absolute,size=405,scope=0,def=85,ref=6+270,val=0x80A3,seg=0,type=lab
+            const sym = csym.sym;
+            if (sym !== undefined && !isNaN(sym)) {
+                const address = dbgMap.sym[sym].val;
+                const size = dbgMap.sym[sym].size;
+                if (address !== undefined) {
+                    const name = csym.name.slice(1, -1);
+                    const addr = parseInt(address, 16);
+
+                    // *** TODO: decide whether to add to both functions and cSymbols ***
+                    // *** TODO: probably need to ensure that scope symbol equals sym id ***
+                    if (this.isScope('"_' + name + '"', dbgMap.scope)) {
+                        this.functions.set(name, { address: addr, size: size });
+                    } else {
+                        this.cSymbols.set(name, { address: addr, size: size });
+                    }
+                }
             }
         }
         return true;
+    }
+
+    private isScope(name: string, scopes: DbgScope[]): boolean {
+        const iterator = scopes.entries();
+        let entry = iterator.next();
+        while (!entry.done) {
+            const scope = entry.value[1];
+            if (scope.name === name) {
+                return true;
+            }
+            entry = iterator.next();
+        }
+        return false;
     }
 
     private createReverseMap() {

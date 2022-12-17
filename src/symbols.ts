@@ -43,6 +43,10 @@ export class Symbols {
         this.symbols.set(name, symbol);
     }
 
+    public entries() {
+        return this.symbols.entries();
+    }
+
     // get address of name
     public getAddress(name: string): number | undefined {
         return this.symbols.get(name)?.address;

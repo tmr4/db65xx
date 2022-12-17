@@ -141,6 +141,11 @@ export class Terminal {
     }
 
     public terminalClear(): void {
+        this.in = 0;
+        this.out = 0;
+        this.buffer = '';
+        this._lastChar = '';
+        this._kbhit = false;
         this._writeEmitter.fire('\x1b[2J\x1b[3J\x1b[;H');
     }
 
@@ -181,6 +186,7 @@ export class Terminal {
 var terminal: Terminal | undefined;
 
 export function terminalDispose() {
+    waiting = false;
     terminal?.dispose();
     terminal = undefined;
 }
@@ -188,6 +194,9 @@ export function terminalDispose() {
 export function terminalStart(name: string, useVIA: boolean = false) {
     if(!terminal) {
         terminal = new Terminal(name, useVIA);
+    } else {
+        waiting = false;
+        terminal.terminalClear();
     }
 }
 
@@ -201,6 +210,7 @@ export function terminalRead(): string {
 }
 
 export function terminalClear() {
+    waiting = false;
     terminal?.terminalClear();
 }
 
