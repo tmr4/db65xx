@@ -1,15 +1,20 @@
 import { Registers } from './registers';
-import { toHexString } from './util';
+import { toHexString, getMemValue, setMemValue } from './util';
 
-// Symbol types:
-//  - memory:   a named memory location (address and size are specified, register and value undefined)
-//  - register: a named register if true (other properties undefined)
-//  - simple:   a named constant
+// Symbol types: (what's defined, other properties undefined)
+//  - memory:   memory location (address and size are specified)
+//  - register: (register is true)
+//  - simple:   constant (value specified)
+//  - C:        local variable (size, scope and offset specified)
+//  - C:        function (address, size, and scope specified)
 export interface ISymbol {
+    name: string;       // needed for when we get symbols by scope
     address?: number;
     size?: number;       // size in bytes
     register?: boolean;
     value?: number;
+    scope?: number;
+    offset?: number;    // offset from C stack pointer
 
     // *** TODO: consider adding file ID
     // this isn't available from VICE symbol file
@@ -62,28 +67,7 @@ export class Symbols {
             const address = sym.address;
             const size = sym.size;
             if ((address !== undefined) && size) {
-                switch (size) {
-                    case 1:
-                        result = this.mem[address];
-                        break;
-                    case 2:
-                        result = (this.mem[address] + (this.mem[address + 1] << 8));
-                        break;
-                    case 3:
-                        result = this.mem[address] +
-                            (this.mem[address + 1] << 8) +
-                            (this.mem[address + 2] << 16);
-                        break;
-                    case 4:
-                        result = this.mem[address] +
-                            (this.mem[address + 1] << 8) +
-                            (this.mem[address + 2] << 16) +
-                            (this.mem[address + 3] << 24);
-                        break;
-                    default:
-                        result = this.mem[address];
-                        break;
-                }
+                result = getMemValue(this.mem, address, size);
             } else if (sym.register) {
                 // get register symbol
                 result = this.registers.getRegister(name);
@@ -106,20 +90,7 @@ export class Symbols {
             const size = sym.size;
             if (address !== undefined && size) {
                 // a memory symbol
-                this.mem[address] = value & 0xff;
-                switch (size) {
-                    case 4:
-                        this.mem[address + 3] = (value & 0xff000000) >> 24;
-                    // fall through
-                    case 3:
-                        this.mem[address + 2] = (value & 0xff0000) >> 16;
-                    // fall through
-                    case 2:
-                        this.mem[address + 1] = (value & 0xff00) >> 8;
-                        break;
-                    default:
-                        break;
-                }
+                setMemValue(value, this.mem, address, size);
             } else if (sym.register) {
                 // set register symbol
                 this.registers.setRegister(name, value);
@@ -129,7 +100,7 @@ export class Symbols {
             }
         } else {
             // symbol not found, create a simple symbol
-            this.symbols.set(name, {value: value});
+            this.symbols.set(name, {name: name, value: value});
         }
     }
 
@@ -153,7 +124,7 @@ export class Symbols {
         //
         this.registers = registers;
         for (const reg of Object.entries(registers.registers)) {
-            this.symbols.set(reg[0], {register: true});
+            this.symbols.set(reg[0], {name: reg[0], register: true});
         }
     }
 }

@@ -97,9 +97,16 @@ export interface DbgCSym {
     name: string,               // name
     scope: number,              // associated scope reference #
     type: number,
-    sc: 'ext' | 'auto',         // external or register(?) variable
+    sc: string,                 // 'auto' | 'reg' | 'static' | 'ext',
+//    sc: 'auto' | 'reg' | 'static' | 'ext',
+                                // storage class:
+                                // *** note that using static local variables removes all reference to the variable in the debug file and thus db65xx can't dereference them ***
+                                //  auto   - on stack at offset
+                                //  reg    - zero page (will have a sym reference pointing to the zeropage 'regbank')
+                                //  static - static linkage. I haven't seen this (static variables are renamed by cc65 and thus not easily dereferenced by db65xx)
+                                //  ext    - external linkage (will have a sym reference)
     sym?: number,               // associated assembler symbol reference #
-    offs?: number               // offset from ?
+    offs?: number               // offset from stack pointer if not zero
 }
 
 export interface DbgType {
@@ -207,7 +214,8 @@ function dataToCSym(data: { [key: string]: string }): DbgCSym {
         name: data.name,
         scope: Number.parseInt(data.scope),
         type: Number.parseInt(data.type),
-        sc: 'ext',
+        sc: data.sc,
+        offs: Number.parseInt(data.offs),
         sym: Number.parseInt(data.sym),
     };
 }

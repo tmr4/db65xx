@@ -20,7 +20,7 @@ import { EE65xx } from './ee65xx';
 import { Registers } from './registers';
 import { Symbols, ISymbol } from './symbols';
 import { SourceMap } from './sourcemap';
-import { toHexString, hasMatchedBrackets, findClosingBracket } from './util';
+import { toHexString, getMemValue, setMemValue, hasMatchedBrackets, findClosingBracket } from './util';
 import { MPU65XX } from './mpu65xx';
 import { terminalClear } from './terminal';
 
@@ -45,6 +45,16 @@ export interface IRuntimeStackFrame {
     name: string;           // text of instruction on line stripped of comments (asm) or function name (C)
     file: string;           // file path
     fileId?: number;        // file id
+    scope?: number;         // scope id for C functions, undefined otherwise
+    sp?: number;            // C stack pointer associated with this scope
+                            // *** the --all-cdecl compiler option has to be used to properly view local
+                            //     variables in C function.  With this option the stack pointer is set on
+                            //     entry to the function.  Otherwise, the first parameter is passed in
+                            //     registers and pushed to the stack on entry, changing the stack pointer.
+                            //     The easiest way to handle this is to force the cdecl calling convention
+                            //     for debugging.  The main drownside is somewhat larger code, which shouldn't
+                            //     be a problem for debugging.  See https://github.com/cc65/wiki/wiki/Parameter-passing-and-calling-conventions#the-fastcall-calling-convention
+                            //     for more information.
     line: number;           // source line #
     address: number;        // address associated with this line
     nextAddress?: number;   // the address following: (asm) jsr/jsl*; (C) function call
@@ -110,6 +120,7 @@ export class Debug65xxSession extends LoggingDebugSession {
     private sourceMap!: SourceMap;
     private symbols!: Symbols;
     private cSymbols!: Map<string, ISymbol>;
+    private cScopes!: Map<number, ISymbol[]>;
 
     // C function and assembly procedure entry/exit addresses
     private functions!: Map<string, ISymbol>;
@@ -482,6 +493,7 @@ export class Debug65xxSession extends LoggingDebugSession {
         this.sourceMap = new SourceMap(this.src, list, binBase, extension, memory, this.registers);
         this.symbols = this.sourceMap.symbols;
         this.cSymbols = this.sourceMap.cSymbols;
+        this.cScopes = this.sourceMap.cScopes;
         this.functions = this.sourceMap.functions;
         this.procedures = this.sourceMap.procedures;
 
@@ -603,7 +615,7 @@ export class Debug65xxSession extends LoggingDebugSession {
                 // also basicCallStack always uses stackFrame for it's top stack frame because
                 // it is not maintained separately
                 stackFrame = {
-                    index: 0,
+                    index: 9999,
                     name: pos.instruction,
                     file: file,
                     line: pos.sourceLine,
@@ -633,7 +645,7 @@ export class Debug65xxSession extends LoggingDebugSession {
                         if (pos !== undefined) {
                             const file = this.sourceMap.getSourceFile(pos.fileId);
                             stackFrame = {
-                                index: 0,
+                                index: 9999,
                                 name: pos.instruction,
                                 file: file,
                                 line: pos.sourceLine,
@@ -652,7 +664,7 @@ export class Debug65xxSession extends LoggingDebugSession {
                 this.inStartup = false;
             } else {
                 stackFrame = {
-                    index: 0,
+                    index: 9999,
                     name: "no source available",
                     file: '',
                     line: 0,
@@ -697,15 +709,27 @@ export class Debug65xxSession extends LoggingDebugSession {
         this.sendResponse(response);
     }
 
+    // send Variable pane scopes to UI according to the runtime stack
     protected scopesRequest(response: DebugProtocol.ScopesResponse, args: DebugProtocol.ScopesArguments): void {
+        const rts = this.runtimeStack.length;
+        const index = args.frameId;
+        const scopes: Scope[] = [];
+
+        scopes.push(new Scope("Registers", this.scopes.get('registers')!, false));
+        scopes.push(new Scope("Stacks", this.scopes.get('stacks')!, false));
+        if (rts > index) {
+            const scope = this.runtimeStack[rts - index - 1].scope;
+            const name = this.runtimeStack[rts - index - 1].name;
+            if (scope !== undefined) {
+                scopes.push(new Scope("Local: " + name, this.scopes.get('locals' + scope.toString())!, false));
+            }
+        }
+
+        // TODO: consider adding globals ***
+        // new Scope("Globals", this.scopes.get('globals')!, true)
 
         response.body = {
-            scopes: [
-                new Scope("Registers", this.scopes.get('registers')!, false),
-                new Scope("Stacks", this.scopes.get('stacks')!, false),
-//                new Scope("Locals", this.scopes.get('locals')!, false),
-//                new Scope("Globals", this.scopes.get('globals')!, true)
-            ]
+            scopes: scopes
         };
         this.sendResponse(response);
     }
@@ -822,16 +846,23 @@ export class Debug65xxSession extends LoggingDebugSession {
                     });
                 }
             }
-//        } else if (scope === 'locals') {
-//            // *** TODO: consider adding ***
-//            let lSymbol = this.getLocalSymbols();
-//            lSymbol.forEach( ls => {
-//                variables.push({
-//                    name: ls.name,
-//                    value: toHexString(this.ee65xx.obsMemory.memory[ls.address]),
-//                    variablesReference: 0,
-//                });
-//            });
+        } else if (scope && (scope as string).startsWith('locals')) {
+            const sc = parseInt((scope as string).slice(6));
+            const sp = this.scopeToSP(sc);
+
+            if ((sp !== undefined) && (sc !== undefined)) {
+                const lSymbols = this.cScopes.get(sc);
+                if (lSymbols) {
+                    const mem = this.ee65xx.obsMemory.memory;
+                    lSymbols.forEach(ls => {
+                        variables.push({
+                            name: ls.name,
+                            value: getMemValue(mem, sp + ls.offset!, ls.size!).toString(16),
+                            variablesReference: 0,
+                        });
+                    });
+                }
+            }
 //        } else if (scope === 'globals') {
 //            // *** TODO: consider adding ***
 //            let lSymbol = this.getLocalSymbols();
@@ -880,6 +911,38 @@ export class Debug65xxSession extends LoggingDebugSession {
             variables: variables
         };
         this.sendResponse(response);
+    }
+
+    private getSP(): number | undefined {
+        const sym = this.symbols.get("sp");
+        let sp: number | undefined = undefined;
+        if (sym) {
+            const addr = sym.address;
+            if (addr !== undefined) {
+                sp = (this.ee65xx.obsMemory.memory[addr + 1] << 8) + this.ee65xx.obsMemory.memory[addr];
+            }
+        }
+        return sp;
+    }
+    private scopeToSP(scope: number): number | undefined {
+        let sp: number | undefined = undefined;
+        for (const [index, frame] of this.runtimeStack.entries()) {
+            if (frame.scope === scope) {
+                sp = frame.sp;
+                break;
+            }
+        }
+        return sp;
+    }
+    private getLocalSym(name: string, syms: ISymbol[]): ISymbol | undefined {
+        let lsym: ISymbol | undefined = undefined;
+        for (const [index, sym] of syms.entries()) {
+            if (sym.name === name) {
+                lsym = sym;
+                break;
+            }
+        }
+        return lsym;
     }
 
     // set the referenced variable to the requested value
@@ -934,6 +997,21 @@ export class Debug65xxSession extends LoggingDebugSession {
 
                 // get actual updated flag value
                 value = this.registers.getFlag(name);
+            } else if (scope && (scope as string).startsWith('locals')) {
+                const sc = parseInt((scope as string).slice(6));
+                const sp = this.scopeToSP(sc);
+
+                if ((sp !== undefined) && (sc !== undefined)) {
+                    const lSymbols = this.cScopes.get(sc);
+                    if (lSymbols) {
+                        const mem = this.ee65xx.obsMemory.memory;
+                        const ls = this.getLocalSym(args.name, lSymbols);
+                        if (ls) {
+                            setMemValue(x, mem, sp + ls.offset!, ls.size!);
+                            value = x;
+                        }
+                    }
+                }
             } else if (ref < 0x10000000) {
                 // can't change stack summary
                 // *** TODO: consider if this is worthwhile or how to remove "Set Value" menu item ***
@@ -1960,6 +2038,8 @@ export class Debug65xxSession extends LoggingDebugSession {
                     name: entry,
                     file: this.sourceMap.getSourceFile(fileId),
                     fileId: fileId,
+                    scope: routine.scope,
+                    sp: this.getSP(),
                     line: sourceMap!.sourceLine,
                     address: start,
                     firstAddress: start,
@@ -2045,7 +2125,9 @@ export class Debug65xxSession extends LoggingDebugSession {
     private registerScopes(mpu: MPU65XX, memory: Uint8Array, fbin: string) {
         this.scopes.set('registers', this._variableHandles.create('registers'));
         this.scopes.set('flags', this._variableHandles.create('flags'));
-        //this.scopes.set('locals', this._variableHandles.create('locals'));
+        for (const [key, csym] of this.cScopes.entries()) {
+            this.scopes.set('locals' + key.toString(), this._variableHandles.create('locals' + key.toString()));
+        }
         //this.scopes.set('globals', this._variableHandles.create('globals'));
 
         // register stacks

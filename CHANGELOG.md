@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.0.14
+
+- Added C function local variables view
+
 ## 0.0.13
 
 - Added proper debug stepping in C source files

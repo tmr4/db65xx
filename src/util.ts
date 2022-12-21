@@ -81,6 +81,50 @@ export function toHexString(byteArray, size: number = 8, length: number = 47) {
     }
 }
 
+export function getMemValue(mem: Uint8Array, address: number, size: number): number {
+    let result: number;
+    switch (size) {
+        case 1:
+            result = mem[address];
+            break;
+        case 2:
+            result = (mem[address] + (mem[address + 1] << 8));
+            break;
+        case 3:
+            result = mem[address] +
+                (mem[address + 1] << 8) +
+                (mem[address + 2] << 16);
+            break;
+        case 4:
+            result = mem[address] +
+                (mem[address + 1] << 8) +
+                (mem[address + 2] << 16) +
+                (mem[address + 3] << 24);
+            break;
+        default:
+            result = mem[address];
+            break;
+    }
+    return result;
+}
+
+export function setMemValue(value: number, mem: Uint8Array, address: number, size: number) {
+    mem[address] = value & 0xff;
+    switch (size) {
+        case 4:
+            mem[address + 3] = (value & 0xff000000) >> 24;
+        // fall through
+        case 3:
+            mem[address + 2] = (value & 0xff0000) >> 16;
+        // fall through
+        case 2:
+            mem[address + 1] = (value & 0xff00) >> 8;
+            break;
+        default:
+            break;
+    }
+}
+
 // find index of matching closing bracket
 // assumes matched brackets
 export function findClosingBracket(text: string, openPos: number): number {
