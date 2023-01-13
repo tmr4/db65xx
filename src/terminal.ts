@@ -101,7 +101,7 @@ export class Terminal {
     private terminalCreate(name: string, useVIA: boolean): vscode.Terminal {
         const pty = {
             onDidWrite: this._writeEmitter.event,
-            open: () => this._writeEmitter.fire('VS Code 65816 Debugger\r\n\r\n'),
+            open: () => this._writeEmitter.fire('VS Code 65xx Debugger\r\n\r\n'),
             close: () => { /* *** TODO: add 'end' event *** */ },
             handleInput: (data: string) => {
                 if(useVIA) {

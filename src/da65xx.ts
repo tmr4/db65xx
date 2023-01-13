@@ -857,7 +857,7 @@ export class Debug65xxSession extends LoggingDebugSession {
                     lSymbols.forEach(ls => {
                         variables.push({
                             name: ls.name,
-                            value: getMemValue(mem, sp + ls.offset!, ls.size!).toString(16),
+                            value: getMemValue(mem, sp + ls.offset! + (this.ee65xx.mpu.dbr << 16), ls.size!).toString(16),
                             variablesReference: 0,
                         });
                     });
@@ -1441,15 +1441,24 @@ export class Debug65xxSession extends LoggingDebugSession {
                 const symbol = this.symbols.get(expr);
 
                 if (symbol) {
-                    const symString = this.symbols.getString(expr);
+                    let symString = this.symbols.getString(expr);
                     if (symString) {
                         result = symString;
                     }
 
                     // do some special formating if we have a memory symbol
-                    const address = symbol.address;
                     const size = symbol.size;
+                    let address = symbol.address;
                     if ((address !== undefined) && size) {
+                        // we must add the DBR to the address of C global variables outside of Bank 0 as the debug file won't include this
+                        // as such, the symbol string value changes as well
+                        // *** TODO: the startWith('_') check is incomplete as user may have a global variable starting with it
+                        //           we really need to check the second character too ***
+                        if (this.callStack[0].file.endsWith('.c') && this.ee65xx.mpu.dbr > 0 && expr.startsWith('_')) {
+                            address += this.ee65xx.mpu.dbr << 16;
+                            symString = this.ee65xx.obsMemory.memory[address].toString(16);
+                            result = symString;
+                        }
                         if (args.context === 'hover') {
                             result = address.toString(16) + ': ' + symString;
                         } else if (args.context === 'watch') {

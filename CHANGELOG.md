@@ -1,5 +1,10 @@
 # Change Log
 
+## 0.0.15
+
+- Added C-based N-Queens example project
+- Bug fix: C variables incorrect when C data is not in Bank 0
+
 ## 0.0.14
 
 - Added C function local variables view
